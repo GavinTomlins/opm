@@ -16,18 +16,21 @@ const rootHelpOrderAnnotation = "opm/root-help-order"
 const (
 	helpGroupSetup     = "Setup"
 	helpGroupProfiles  = "Profiles"
+	helpGroupPresets   = "Model presets"
 	helpGroupScripting = "Scripting"
 )
 
 var rootHelpGroupOrder = []string{
 	helpGroupSetup,
 	helpGroupProfiles,
+	helpGroupPresets,
 	helpGroupScripting,
 }
 
 var rootHelpGroups = map[string]bool{
 	helpGroupSetup:     true,
 	helpGroupProfiles:  true,
+	helpGroupPresets:   true,
 	helpGroupScripting: true,
 }
 

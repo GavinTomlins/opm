@@ -73,6 +73,39 @@ opm exec ci -- opencode run "fix the tests"
 
 `opm exec` sets `XDG_CONFIG_HOME` to a temporary directory containing a symlink to the named profile, then spawns the command. The global active profile — what `opm show` returns — is never touched. When the command exits, the temp directory is cleaned up automatically.
 
+## Model presets
+
+Profiles switch *environments*. Presets switch *models* — inside whatever profile is active.
+
+If you use [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent), every sub-agent and category is pinned to a `provider/model` in `oh-my-openagent.json`. A preset is a named mapping of those assignments — Anthropic for work, an all-local Ollama stack for offline, whatever — stored under `~/.config/opm/presets/` and applied in one command:
+
+```sh
+# Snapshot today's hand-built assignments as your first preset.
+opm preset capture kimi
+
+# Author more presets (JSON or JSONC, string shorthand supported), then:
+opm preset diff local     # dry-run: exactly what would change
+opm preset use local      # bulk-swap every agent/category it names
+opm preset status         # which preset the live config matches
+opm preset revert         # restore the pre-apply backup
+```
+
+Presets patch surgically: only the model-tuning keys (`model`, `variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`, `top_p`, `maxTokens`) of the agents and categories the preset names are touched. Prompts, permissions, comments, and everything else in the live config survive every switch. Presets support `extends` inheritance, and each apply writes a timestamped backup first.
+
+```jsonc
+// ~/.config/opm/presets/local.jsonc
+{
+  "description": "All-local: omlx heavy, ollama quick",
+  "categories": {
+    "quick": "ollama/llama3.1:8b",
+    "deep":  { "model": "omlx/qwen3-coder-30b", "variant": "high" }
+  },
+  "agents": {
+    "sisyphus": { "model": "omlx/qwen3-coder-30b", "variant": "max" }
+  }
+}
+```
+
 ---
 
 ## Install
@@ -116,6 +149,13 @@ Everything `opm` exposes for day-to-day use, without context trees.
 | `opm inspect <name>` | Show profile details and directory contents. |
 | `opm doctor` | Run installation health checks. Exits with code 1 on failure. |
 | `opm reset` | Remove opm management and restore `~/.config/opencode` as a plain directory. |
+| `opm preset list` | List model presets. `●` marks presets matching the live config. |
+| `opm preset show <name>` | Show a preset's resolved model mapping (after `extends`). |
+| `opm preset use <name>` | Apply a preset to the live oh-my-openagent config (backs up first). |
+| `opm preset diff <name>` | Dry-run: show exactly what `use` would change. |
+| `opm preset capture <name>` | Snapshot the live model assignments into a new preset. |
+| `opm preset status` | Report which preset the live config matches. |
+| `opm preset revert` | Restore the live config from the most recent preset backup. |
 
 **Shell completion** — profile names are tab-completed for `use`, `copy`, `rename`, `remove`, `path`, and `inspect`:
 

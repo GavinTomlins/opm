@@ -1,0 +1,148 @@
+# Model Presets — Design
+
+**Date:** 2026-07-13
+**Status:** Approved for phase 1 implementation
+
+## Problem
+
+opm switches whole OpenCode environments (profile = full config directory), but it has no
+answer for the *other* kind of switching users actually do daily: re-pointing every
+oh-my-openagent sub-agent and category at a different provider's models — Anthropic today,
+a local Ollama/omlx stack tonight, Kimi tomorrow. Doing that with opm profiles would mean
+duplicating the entire config directory per model-set and hand-propagating every unrelated
+change across the copies. Doing it by hand means editing `oh-my-openagent.json` per agent
+and hoping nothing else gets lost.
+
+Previous attempts in this ecosystem (omc-tui, the omc-profile-switcher skill) failed the
+same way: they kept model profiles in a separate store and **regenerated** the live config
+file wholesale, destroying prompt/permission overrides they didn't model.
+
+## Solution: a second, orthogonal switching layer
+
+A **preset** is a named model-mapping overlay applied *onto* the active profile's
+oh-my-openagent config. Profiles stay the coarse environment layer; presets are the fine
+model layer. The two compose: any preset can be applied inside any profile.
+
+The cardinal rule that fixes what previous attempts got wrong:
+
+> **Apply patches surgically; never regenerate.** A preset owns only the *model-tuning
+> keys* of the agents/categories it names. Everything else in the live file — prompts,
+> permissions, team_mode, disabled_*, comments, formatting — is preserved byte-for-byte.
+
+### Tuning keys (the only keys a preset may set, and the only keys apply may touch)
+
+`model`, `variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`,
+`top_p`, `maxTokens`
+
+Within an entry the preset is **authoritative**: tuning keys the preset entry does not
+specify are *removed* from the live entry (no stale `variant: max` left behind on a model
+that doesn't support it). Entries (agents/categories) the preset does not name are left
+completely untouched.
+
+## Preset file format
+
+Location: `~/.config/opm/presets/<name>.json` (loading also accepts `.jsonc`; both parsed
+with hujson, so comments and trailing commas are fine). Preset names use the same
+validation as profile names (`store.ValidateName`).
+
+```jsonc
+// ~/.config/opm/presets/local.jsonc
+{
+  "description": "All-local: omlx heavy, ollama quick",
+  "extends": "base",                       // optional single inheritance
+  "categories": {
+    "quick": "ollama/llama3.1:8b",         // string shorthand = { "model": ... }
+    "deep":  { "model": "omlx/qwen3-coder-30b", "variant": "high" }
+  },
+  "agents": {
+    "sisyphus": { "model": "omlx/qwen3-coder-30b", "variant": "max" },
+    "explore":  "ollama/qwen2.5-coder:14b"
+  }
+}
+```
+
+Rules:
+- Entry values: string shorthand (`"provider/model"`) or object restricted to tuning keys.
+  Unknown keys in an entry are an **error** — presets must not smuggle prompt/permission
+  content.
+- `model` values must contain `/` (the `provider/model` namespace format).
+- `extends`: single inheritance chain, cycle-detected. Child overrides at **entry level**
+  (a child's entry for an agent/category replaces the parent's entry entirely — an entry
+  is an atomic tuning unit, never key-merged across the chain).
+
+## Live-config resolution
+
+The target file lives in the opencode config dir (in production, `~/.config/opencode`,
+i.e. inside the active profile). oh-my-openagent reads, in priority order (legacy name
+wins, `.jsonc` preferred within a name):
+
+1. `oh-my-opencode.jsonc`
+2. `oh-my-opencode.json`
+3. `oh-my-openagent.jsonc`
+4. `oh-my-openagent.json`
+
+`opm preset use` patches **the winning file** so the change is what oh-my-openagent
+actually loads, and warns when more than one candidate exists. When none exists, apply
+creates `oh-my-openagent.json` with the framework's `$schema` header.
+
+**Symlink preservation:** if the winning file is a symlink (dotfiles setups pointing into
+a git repo), apply resolves it and writes through to the final target via temp-file +
+rename *in the target's directory* — the symlink itself is never replaced.
+
+## Apply mechanics
+
+1. Read winning file; `hujson.Parse`.
+2. A standardized clone is unmarshalled to compute current state.
+3. Build an RFC 6902 JSON Patch containing only add/replace/remove ops on
+   `/agents/<name>/<key>` and `/categories/<name>/<key>` paths (whole-entry add when the
+   entry doesn't exist yet; JSON Pointer escaping applied).
+4. `Value.Patch(...)` — hujson applies the patch while preserving comments/formatting of
+   untouched regions.
+5. Timestamped backup of the original to `~/.config/opm/backups/presets/`, then atomic
+   write (temp + rename, symlink-aware as above).
+
+`opm preset revert` restores the most recent backup.
+
+## Command surface
+
+New `preset` command group (help group "Model presets"). These commands do **not** require
+opm-managed state (`managedGuard`) — they operate on whatever `~/.config/opencode`
+resolves to, so they work pre-`opm init` too.
+
+| Command | Behavior |
+|---|---|
+| `opm preset list` | All presets; ● marks preset(s) matching the live config |
+| `opm preset show <name>` | Resolved mapping after `extends` |
+| `opm preset use <name>` | Backup + surgical apply to the live config |
+| `opm preset diff <name>` | Dry-run: exact field-level changes `use` would make |
+| `opm preset capture <name>` | Snapshot live tuning keys into a new preset (`--force` to overwrite) |
+| `opm preset status` | Which preset matches the live config, or "no preset matches" |
+| `opm preset revert` | Restore the most recent pre-apply backup |
+
+`capture` is the migration path: run it once and today's hand-built config becomes the
+first preset, zero authoring.
+
+## Out of scope for phase 1 (later phases)
+
+- Model-reference validation against the profile's `opencode.json` provider block, and
+  local-endpoint reachability probes (phase 2, plus `opm doctor` integration).
+- Agent-markdown frontmatter rewriting (`agents/*.md` `model:` key) and top-level
+  `opencode.json` model fields (phase 3).
+- `opm exec --preset` and per-project `.opencode/oh-my-openagent.jsonc` writing (phase 4).
+
+## Dependencies
+
+`github.com/tailscale/hujson` — pure Go, no transitive deps, provides comment-preserving
+parse/patch/pack. Within the spirit of the "no heavy config libraries" constraint (it is a
+format codec, not a config framework; the viper ban stands).
+
+## Testing
+
+`t.TempDir()` filesystem isolation as everywhere else. Key invariants under test:
+- comments/formatting/unknown sections survive apply byte-regions untouched
+- prompt/permission keys inside a patched entry survive
+- stale tuning keys are removed; unnamed entries untouched
+- symlinked live file: target rewritten, symlink preserved
+- extends resolution + cycle error; entry-level override semantics
+- capture → status reports match; diff on matching preset is empty
+- winning-file priority and multi-candidate warning

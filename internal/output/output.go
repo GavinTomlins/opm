@@ -239,11 +239,14 @@ func HelpFlagTable(w io.Writer, flags [][2]string) {
 
 // SubcmdHelp renders a styled help page for a single subcommand.
 func SubcmdHelp(w io.Writer, cmd *cobra.Command) {
-	useParts := strings.Fields(cmd.Use)
-	cmdName := "opm"
-	if len(useParts) > 0 {
-		cmdName = "opm " + useParts[0]
+	// CommandPath yields the full nested path (e.g. "opm preset use") for
+	// commands attached to the root; standalone (parentless) commands get
+	// the root name prefixed manually.
+	cmdName := cmd.CommandPath()
+	if cmdName != "opm" && !strings.HasPrefix(cmdName, "opm ") {
+		cmdName = "opm " + cmdName
 	}
+	useParts := strings.Fields(cmd.Use)
 
 	_, _ = fmt.Fprintf(w, "%s — %s\n", steelBlue.Sprint(cmdName), cmd.Short)
 
@@ -266,12 +269,16 @@ func SubcmdHelp(w io.Writer, cmd *cobra.Command) {
 
 	_, _ = fmt.Fprintln(w)
 	HelpSection(w, "Usage:")
-	// Build the full usage line: "opm <use-field>" rather than cmd.UseLine()
-	// which omits the root command name for standalone (parentless) commands.
+	// Build the full usage line from the nested command path plus the
+	// argument placeholders in the Use field.
+	usage := cmdName
+	if len(useParts) > 1 {
+		usage += " " + strings.Join(useParts[1:], " ")
+	}
 	if allFlags.HasFlags() {
-		_, _ = fmt.Fprintf(w, "  opm %s [flags]\n", cmd.Use)
+		_, _ = fmt.Fprintf(w, "  %s [flags]\n", usage)
 	} else {
-		_, _ = fmt.Fprintf(w, "  opm %s\n", cmd.Use)
+		_, _ = fmt.Fprintf(w, "  %s\n", usage)
 	}
 
 	if allFlags.HasFlags() {
