@@ -139,10 +139,31 @@ first preset, zero authoring.
 extends chain, and pass reference validation; shadowed live-config candidates are warned
 about. Doctor does not probe endpoints (no network in doctor); probes run on `use`.
 
+## Phase 3: markdown agents & opencode.json (implemented)
+
+Presets now own two more surfaces, diffed/applied/reverted together with the
+oh-my-openagent config:
+
+- **Markdown agent sync** — OpenCode agents defined as markdown with YAML frontmatter
+  (`<config>/agent/*.md` or `agents/*.md`, both forms supported) shadow same-named
+  plugin agents, so they must stay in sync. For every preset `agents` entry whose name
+  has a markdown definition in the profile, apply rewrites only the frontmatter
+  `model:` line (adding it when absent) to the entry's model. Description, mode,
+  permissions, prompt body — untouched. Markdown files that are symlinks are written
+  through, not replaced. Files without frontmatter are skipped.
+- **`opencode` block** — a preset may set top-level `opencode.json` fields:
+  `{ "opencode": { "model": "p/m", "small_model": "p/m" } }`. Unlike entries, this
+  block only sets the keys it names (opm does not own the rest of opencode.json);
+  patching is hujson-surgical so provider declarations and comments survive.
+  `capture` snapshots these fields when present; refs are included in validation.
+
+**Backups are now revertable sets**: each apply that changes anything creates
+`~/.config/opm/backups/presets/<stamp>/` containing every pre-change file plus a
+`manifest.json` mapping copies to their absolute targets. `opm preset revert` restores
+the newest set as a unit — live config, markdown agents, and opencode.json together.
+
 ## Out of scope (later phases)
 
-- Agent-markdown frontmatter rewriting (`agents/*.md` `model:` key) and top-level
-  `opencode.json` model fields (phase 3).
 - `opm exec --preset` and per-project `.opencode/oh-my-openagent.jsonc` writing (phase 4).
 
 ## Dependencies

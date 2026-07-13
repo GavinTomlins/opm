@@ -256,14 +256,14 @@ func TestRevert_RestoresBackup(t *testing.T) {
 	_, err = m.Apply(mustResolve(t, m, "local"))
 	require.NoError(t, err)
 
-	restoredTo, backupName, err := m.Revert()
+	restored, backupName, err := m.Revert()
 	require.NoError(t, err)
-	// Revert resolves symlinks (macOS: /var → /private/var), so compare
-	// resolved paths.
+	// Backups record symlink-resolved targets (macOS: /var → /private/var),
+	// so compare resolved paths.
 	resolvedLive, err := filepath.EvalSymlinks(livePath)
 	require.NoError(t, err)
-	assert.Equal(t, resolvedLive, restoredTo)
-	assert.Contains(t, backupName, "oh-my-openagent.json")
+	assert.Equal(t, []string{resolvedLive}, restored)
+	assert.Regexp(t, `^\d{8}-\d{6}`, backupName)
 
 	after, err := os.ReadFile(livePath)
 	require.NoError(t, err)

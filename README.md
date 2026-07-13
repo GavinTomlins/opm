@@ -94,6 +94,8 @@ Presets patch surgically: only the model-tuning keys (`model`, `variant`, `fallb
 
 Before applying, `use` validates every model reference against the profile's `opencode.json` provider block and pings loopback-hosted providers (Ollama, LM Studio, omlx, …) so you never switch onto a model that doesn't exist or a local server that isn't running — override with `--force`. `opm doctor` checks the health of every stored preset.
 
+Presets also cover the other two places models hide: agents defined as markdown (`agent/*.md` frontmatter — the `model:` line is synced for any agent the preset names, everything else untouched) and the top-level `model`/`small_model` fields of `opencode.json` via an optional `"opencode"` block. Every apply backs up all touched files as one set, and `opm preset revert` restores the whole set together.
+
 ```jsonc
 // ~/.config/opm/presets/local.jsonc
 {

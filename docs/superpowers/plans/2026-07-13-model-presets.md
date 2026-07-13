@@ -60,3 +60,17 @@
 - [x] **Step 3:** `preset use` runs both; failures block without `--force`; warnings always printed.
 - [x] **Step 4:** `doctor.RunPresets` — Presets section (parse/resolve/refs per preset, shadowed-candidate warnings).
 - [x] **Step 5:** Tests: validation matrix, live/dead httptest probe, loopback detection, cmd-level `--force` gate, doctor output.
+
+---
+
+## Phase 3: markdown agents, opencode.json, revertable backup sets
+
+**Files:**
+- Create: `internal/preset/agentmd.go`, `internal/preset/opencode.go`, `internal/preset/backup.go`, `internal/preset/agentmd_test.go`
+- Modify: `internal/preset/preset.go` (Opencode field), `internal/preset/apply.go` (orchestrated Apply/Diff), `internal/preset/validate.go`, `cmd/preset.go`, `internal/output/preset.go`
+
+- [x] **Step 1:** Frontmatter model read/rewrite (model line only; insert when absent; error when no frontmatter); `agent/` and `agents/` dir support.
+- [x] **Step 2:** Preset `opencode` block (model/small_model only, validated) with set-only semantics, hujson-surgical patching, capture support, refs included in validation.
+- [x] **Step 3:** Backup sets: `<backupsDir>/<stamp>/` + manifest.json; multi-file `Revert` restores the newest set as a unit.
+- [x] **Step 4:** Apply orchestrates all three surfaces; Diff/status/matching include them; symlinked markdown files written through.
+- [x] **Step 5:** Tests: frontmatter surgery, md sync + idempotence, symlink preservation, opencode block round-trip, multi-file revert, opencode capture.

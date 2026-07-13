@@ -7,17 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/tailscale/hujson"
 )
-
-// backupStampPrefix matches the timestamp prefix of backup file names,
-// including the .N collision suffix: "20260713-153000-" or "20260713-153000.2-".
-var backupStampPrefix = regexp.MustCompile(`^\d{8}-\d{6}(\.\d+)?-`)
 
 // ChangeOp is the kind of field-level change apply would make.
 type ChangeOp int
@@ -28,17 +22,27 @@ const (
 	OpRemove
 )
 
-// Change is one field-level difference between a preset and the live config.
+// Change is one field-level difference between a preset and the live state.
 type Change struct {
-	Section string // "agents" or "categories"
-	Name    string // agent/category name
-	Key     string // tuning key
+	Section string // "agents", "categories", "agent-md", or "opencode"
+	Name    string // agent/category name (or top-level key for "opencode")
+	Key     string // tuning key ("" for "opencode" changes)
 	Old     string // rendered current value, "" when absent
 	New     string // rendered preset value, "" when removed
 	Op      ChangeOp
 
 	newRaw       json.RawMessage // raw preset value for patch building
 	entryMissing bool            // live entry absent entirely — patch adds the whole entry
+	mdPath       string          // markdown file path for "agent-md" changes
+}
+
+// Field renders the change's dotted field path for display.
+func (c Change) Field() string {
+	field := c.Section + "." + c.Name
+	if c.Key != "" {
+		field += "." + c.Key
+	}
+	return field
 }
 
 // ApplyResult reports what Apply did.
@@ -93,8 +97,10 @@ func (m *Manager) readLiveState(lf LiveFile) (*liveState, []byte, error) {
 	return state, raw, nil
 }
 
-// Diff computes the field-level changes applying p would make to the live
-// config. An empty result means the live config already matches the preset.
+// Diff computes the field-level changes applying p would make across every
+// surface a preset owns: the oh-my-openagent config, markdown agent
+// frontmatter, and top-level opencode.json fields. An empty result means
+// the live state already matches the preset.
 func (m *Manager) Diff(p *Preset) ([]Change, error) {
 	lf, err := m.LiveFile()
 	if err != nil {
@@ -104,7 +110,19 @@ func (m *Manager) Diff(p *Preset) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	return diffState(p, state), nil
+	changes := diffState(p, state)
+
+	mdChanges, err := m.diffAgentMd(p)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, mdChanges...)
+
+	ocChanges, err := m.diffOpencode(p)
+	if err != nil {
+		return nil, err
+	}
+	return append(changes, ocChanges...), nil
 }
 
 func diffState(p *Preset, state *liveState) []Change {
@@ -186,10 +204,12 @@ func renderValue(raw json.RawMessage) string {
 	return buf.String()
 }
 
-// Apply patches the live config to match p. Only tuning keys of entries the
-// preset names are touched; comments, formatting, and all other content are
-// preserved via hujson's JSON-Patch support. The original file is backed up
-// first, and the write is atomic and symlink-aware.
+// Apply patches every surface the preset owns to match p: the
+// oh-my-openagent config (only tuning keys of named entries), markdown
+// agent frontmatter (model line only), and named top-level opencode.json
+// fields. Comments, formatting, and all other content are preserved via
+// hujson's JSON-Patch support. Originals are backed up as one revertable
+// set, and every write is atomic and symlink-aware.
 func (m *Manager) Apply(p *Preset) (*ApplyResult, error) {
 	lf, err := m.LiveFile()
 	if err != nil {
@@ -201,52 +221,81 @@ func (m *Manager) Apply(p *Preset) (*ApplyResult, error) {
 	}
 
 	result := &ApplyResult{LivePath: lf.Path, Target: lf.Target, Others: lf.Others}
-	result.Changes = diffState(p, state)
+	omoChanges := diffState(p, state)
+	mdChanges, err := m.diffAgentMd(p)
+	if err != nil {
+		return nil, err
+	}
+	ocChanges, err := m.diffOpencode(p)
+	if err != nil {
+		return nil, err
+	}
+	result.Changes = append(append(omoChanges, mdChanges...), ocChanges...)
 	if len(result.Changes) == 0 {
 		return result, nil
 	}
 
-	if !lf.Exists {
-		data, err := newLiveConfig(p)
-		if err != nil {
+	backup := newBackupSet(m.backupsDir)
+
+	if len(omoChanges) > 0 {
+		if err := m.applyLiveConfig(p, lf, state, raw, omoChanges, backup, result); err != nil {
 			return nil, err
 		}
-		if err := os.MkdirAll(filepath.Dir(lf.Target), 0o755); err != nil {
-			return nil, fmt.Errorf("create config dir: %w", err)
-		}
-		if err := writeFileAtomic(lf.Target, data, 0o644); err != nil {
-			return nil, fmt.Errorf("write %s: %w", lf.Path, err)
-		}
-		result.Created = true
-		return result, nil
 	}
-
-	patch, err := buildPatch(state, result.Changes)
-	if err != nil {
+	if err := m.applyAgentMd(mdChanges, backup); err != nil {
 		return nil, err
 	}
-	value, err := hujson.Parse(bytes.Clone(raw))
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", lf.Path, err)
-	}
-	if err := value.Patch(patch); err != nil {
-		return nil, fmt.Errorf("patch %s: %w", lf.Path, err)
+	if err := m.applyOpencode(ocChanges, backup); err != nil {
+		return nil, err
 	}
 
-	backupPath, err := m.backup(lf, raw)
+	backupPath, err := backup.finish()
 	if err != nil {
 		return nil, err
 	}
 	result.BackupPath = backupPath
+	return result, nil
+}
 
+// applyLiveConfig patches (or creates) the oh-my-openagent config file.
+func (m *Manager) applyLiveConfig(p *Preset, lf LiveFile, state *liveState, raw []byte, changes []Change, backup *backupSet, result *ApplyResult) error {
+	if !lf.Exists {
+		data, err := newLiveConfig(p)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(lf.Target), 0o755); err != nil {
+			return fmt.Errorf("create config dir: %w", err)
+		}
+		if err := writeFileAtomic(lf.Target, data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", lf.Path, err)
+		}
+		result.Created = true
+		return nil
+	}
+
+	patch, err := buildPatch(state, changes)
+	if err != nil {
+		return err
+	}
+	value, err := hujson.Parse(bytes.Clone(raw))
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", lf.Path, err)
+	}
+	if err := value.Patch(patch); err != nil {
+		return fmt.Errorf("patch %s: %w", lf.Path, err)
+	}
+	if err := backup.add(lf.Target, raw); err != nil {
+		return err
+	}
 	perm := os.FileMode(0o644)
 	if fi, err := os.Stat(lf.Target); err == nil {
 		perm = fi.Mode().Perm()
 	}
 	if err := writeFileAtomic(lf.Target, value.Pack(), perm); err != nil {
-		return nil, fmt.Errorf("write %s: %w", lf.Path, err)
+		return fmt.Errorf("write %s: %w", lf.Path, err)
 	}
-	return result, nil
+	return nil
 }
 
 // newLiveConfig renders a fresh oh-my-openagent.json for the created case.
@@ -322,27 +371,6 @@ func escapePointer(s string) string {
 	return strings.ReplaceAll(s, "/", "~1")
 }
 
-// backup copies the original live file bytes into the backups directory
-// under a timestamped name that Revert can map back to the live file.
-func (m *Manager) backup(lf LiveFile, raw []byte) (string, error) {
-	if err := os.MkdirAll(m.backupsDir, 0o755); err != nil {
-		return "", fmt.Errorf("create backups dir: %w", err)
-	}
-	base := filepath.Base(lf.Path)
-	stamp := time.Now().Format("20060102-150405")
-	path := filepath.Join(m.backupsDir, stamp+"-"+base)
-	for i := 2; ; i++ {
-		if _, err := os.Lstat(path); os.IsNotExist(err) {
-			break
-		}
-		path = filepath.Join(m.backupsDir, fmt.Sprintf("%s.%d-%s", stamp, i, base))
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		return "", fmt.Errorf("write backup: %w", err)
-	}
-	return path, nil
-}
-
 // writeFileAtomic writes data to target via a temp file + rename in the
 // target's own directory. Callers pass a symlink-resolved target so the
 // rename lands on the real file and never replaces a symlink.
@@ -396,6 +424,7 @@ func (m *Manager) Capture(name string, force bool) (*Preset, string, error) {
 		Name:       name,
 		Agents:     captureSection(state.agents),
 		Categories: captureSection(state.categories),
+		Opencode:   m.captureOpencode(),
 	}
 	if p.EntryCount() == 0 {
 		return nil, "", fmt.Errorf("%s has no agent or category model assignments to capture", lf.Path)
@@ -425,51 +454,6 @@ func captureSection(live map[string]map[string]json.RawMessage) map[string]Entry
 		return nil
 	}
 	return out
-}
-
-// Revert restores the most recent backup over the live file it came from.
-func (m *Manager) Revert() (restoredTo, backupName string, err error) {
-	entries, err := os.ReadDir(m.backupsDir)
-	if os.IsNotExist(err) || (err == nil && len(entries) == 0) {
-		return "", "", fmt.Errorf("no preset backups found")
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("list backups: %w", err)
-	}
-
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	if len(names) == 0 {
-		return "", "", fmt.Errorf("no preset backups found")
-	}
-	sort.Strings(names)
-	newest := names[len(names)-1]
-
-	data, err := os.ReadFile(filepath.Join(m.backupsDir, newest))
-	if err != nil {
-		return "", "", fmt.Errorf("read backup: %w", err)
-	}
-
-	// Backup names are <stamp>-<original filename>; recover the filename.
-	base := backupStampPrefix.ReplaceAllString(newest, "")
-	target := filepath.Join(m.opencodeDir, base)
-	if resolved, rerr := filepath.EvalSymlinks(target); rerr == nil {
-		target = resolved
-	} else if dir, derr := filepath.EvalSymlinks(m.opencodeDir); derr == nil {
-		target = filepath.Join(dir, base)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", "", fmt.Errorf("create config dir: %w", err)
-	}
-	if err := writeFileAtomic(target, data, 0o644); err != nil {
-		return "", "", fmt.Errorf("restore backup: %w", err)
-	}
-	return target, newest, nil
 }
 
 // marshalPreset renders a preset as stable indented JSON for storage.

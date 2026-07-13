@@ -126,7 +126,7 @@ func (e Entry) ModelRefs() []string {
 }
 
 // modelRefs returns the sorted unique provider/model refs across all of a
-// preset's entries.
+// preset's entries and its opencode block.
 func (p *Preset) modelRefs() []string {
 	seen := map[string]bool{}
 	for _, section := range []map[string]Entry{p.Agents, p.Categories} {
@@ -134,6 +134,12 @@ func (p *Preset) modelRefs() []string {
 			for _, ref := range entry.ModelRefs() {
 				seen[ref] = true
 			}
+		}
+	}
+	for _, raw := range p.Opencode {
+		var s string
+		if json.Unmarshal(raw, &s) == nil && s != "" {
+			seen[s] = true
 		}
 	}
 	refs := make([]string, 0, len(seen))

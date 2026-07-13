@@ -64,6 +64,21 @@ func PresetDetails(w io.Writer, p *preset.Preset) {
 			_, _ = fmt.Fprintf(w, "  %s%s    %s\n", name, pad, sec.get(name).Summary())
 		}
 	}
+
+	if oc := p.OpencodeValues(); len(oc) > 0 {
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, dim.Sprint("Opencode"))
+		maxLen := 0
+		for _, kv := range oc {
+			if len(kv[0]) > maxLen {
+				maxLen = len(kv[0])
+			}
+		}
+		for _, kv := range oc {
+			pad := strings.Repeat(" ", maxLen-len(kv[0]))
+			_, _ = fmt.Fprintf(w, "  %s%s    %s\n", kv[0], pad, kv[1])
+		}
+	}
 }
 
 // PresetChanges writes the diff listing: one row per field-level change.
@@ -71,7 +86,7 @@ func PresetChanges(w io.Writer, changes []preset.Change) {
 	maxLen := 0
 	rows := make([][2]string, 0, len(changes))
 	for _, c := range changes {
-		field := c.Section + "." + c.Name + "." + c.Key
+		field := c.Field()
 		var delta string
 		switch c.Op {
 		case preset.OpAdd:

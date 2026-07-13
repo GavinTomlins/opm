@@ -129,6 +129,9 @@ type Preset struct {
 	Extends     string           `json:"extends,omitempty"`
 	Agents      map[string]Entry `json:"agents,omitempty"`
 	Categories  map[string]Entry `json:"categories,omitempty"`
+	// Opencode sets top-level opencode.json fields ("model", "small_model").
+	// Unlike entries, this block only sets the keys it names.
+	Opencode map[string]json.RawMessage `json:"opencode,omitempty"`
 }
 
 // Parse decodes a preset from JSON or JSONC bytes. Unknown top-level
@@ -157,6 +160,19 @@ func Parse(name string, data []byte) (*Preset, error) {
 			}
 		}
 	}
+
+	for key, raw := range p.Opencode {
+		if !opencodeKeys[key] {
+			return nil, fmt.Errorf("preset %q: opencode.%s: only \"model\" and \"small_model\" may be set", name, key)
+		}
+		var model string
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return nil, fmt.Errorf("preset %q: opencode.%s must be a string", name, key)
+		}
+		if !strings.Contains(model, "/") {
+			return nil, fmt.Errorf("preset %q: opencode.%s: model %q must use provider/model form", name, key, model)
+		}
+	}
 	return &p, nil
 }
 
@@ -170,6 +186,21 @@ func (p *Preset) SortedAgentNames() []string { return sortedKeys(p.Agents) }
 
 // SortedCategoryNames returns category entry names in sorted order.
 func (p *Preset) SortedCategoryNames() []string { return sortedKeys(p.Categories) }
+
+// OpencodeValues returns the opencode block as sorted key/rendered-value
+// pairs for display.
+func (p *Preset) OpencodeValues() [][2]string {
+	keys := make([]string, 0, len(p.Opencode))
+	for k := range p.Opencode {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([][2]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, [2]string{k, renderValue(p.Opencode[k])})
+	}
+	return out
+}
 
 func sortedKeys(m map[string]Entry) []string {
 	keys := make([]string, 0, len(m))
@@ -189,6 +220,7 @@ func merge(base, child *Preset) *Preset {
 		Description: child.Description,
 		Agents:      map[string]Entry{},
 		Categories:  map[string]Entry{},
+		Opencode:    map[string]json.RawMessage{},
 	}
 	for name, e := range base.Agents {
 		out.Agents[name] = e
@@ -201,6 +233,16 @@ func merge(base, child *Preset) *Preset {
 	}
 	for name, e := range child.Categories {
 		out.Categories[name] = e
+	}
+	// The opencode block merges key-wise: each key is independent.
+	for key, v := range base.Opencode {
+		out.Opencode[key] = v
+	}
+	for key, v := range child.Opencode {
+		out.Opencode[key] = v
+	}
+	if len(out.Opencode) == 0 {
+		out.Opencode = nil
 	}
 	return out
 }

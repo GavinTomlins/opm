@@ -156,8 +156,8 @@ func runPresetUse(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if p.EntryCount() == 0 {
-		return fmt.Errorf("preset %q resolves to no agent or category entries", p.Name)
+	if p.EntryCount() == 0 && len(p.Opencode) == 0 {
+		return fmt.Errorf("preset %q resolves to no agent, category, or opencode entries", p.Name)
 	}
 
 	force, _ := cmd.Flags().GetBool("force")
@@ -256,13 +256,17 @@ func runPresetStatus(cmd *cobra.Command, args []string) error {
 
 func runPresetRevert(cmd *cobra.Command, args []string) error {
 	m := newPresetManager()
-	restoredTo, backupName, err := m.Revert()
+	restored, backupName, err := m.Revert()
 	if err != nil {
 		return err
 	}
-	output.Success(cmd.OutOrStdout(), "Restored "+output.ShortenHome(restoredTo),
-		"from backup "+backupName,
-		"restart OpenCode sessions to pick up the change")
+	details := make([]string, 0, len(restored)+2)
+	for _, path := range restored {
+		details = append(details, output.ShortenHome(path))
+	}
+	details = append(details, "restart OpenCode sessions to pick up the change")
+	output.Success(cmd.OutOrStdout(),
+		fmt.Sprintf("Restored %d file(s) from backup %s", len(restored), backupName), details...)
 	return nil
 }
 
