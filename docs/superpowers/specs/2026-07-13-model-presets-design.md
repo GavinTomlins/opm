@@ -162,9 +162,28 @@ oh-my-openagent config:
 `manifest.json` mapping copies to their absolute targets. `opm preset revert` restores
 the newest set as a unit — live config, markdown agents, and opencode.json together.
 
-## Out of scope (later phases)
+## Phase 4: scoped application (implemented)
 
-- `opm exec --preset` and per-project `.opencode/oh-my-openagent.jsonc` writing (phase 4).
+- **`opm exec <profile> --preset <name>`** — ephemeral sessions with a preset applied and
+  zero global mutation. Instead of symlinking the profile directly, exec builds a
+  copy-on-write overlay: every profile entry is symlinked except the files a preset owns
+  (the four oh-my-openagent candidates, `opencode.json[c]`, and the `agent`/`agents`
+  dirs), which are materialized as symlink-resolved real copies. The preset is applied to
+  the overlay; backups land inside the ephemeral temp dir and vanish with it. The real
+  profile — and any dotfiles repos its symlinks point into — is never modified.
+  Validation (`--force` to override) runs against the overlay's real config copies.
+- **`opm preset use <name> --project`** (and `diff --project`) — writes/patches
+  `./.opencode/oh-my-openagent.json` in the current project instead of the profile
+  config, exploiting oh-my-openagent's closest-wins config walking: the project override
+  beats the global config for that project only. Reference validation still runs against
+  the profile's `opencode.json` (provider declarations are global). The preset's
+  `opencode` block is skipped in project mode with a warning.
+
+## Roadmap
+
+All four phases are implemented. Possible future work: an `opm preset edit` authoring
+helper, probing non-loopback LAN endpoints behind an opt-in flag, and adopting the preset
+file format in external tools (OCCM, a standalone TUI).
 
 ## Dependencies
 

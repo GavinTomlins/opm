@@ -74,3 +74,16 @@
 - [x] **Step 3:** Backup sets: `<backupsDir>/<stamp>/` + manifest.json; multi-file `Revert` restores the newest set as a unit.
 - [x] **Step 4:** Apply orchestrates all three surfaces; Diff/status/matching include them; symlinked markdown files written through.
 - [x] **Step 5:** Tests: frontmatter surgery, md sync + idempotence, symlink preservation, opencode block round-trip, multi-file revert, opencode capture.
+
+---
+
+## Phase 4: scoped application
+
+**Files:**
+- Create: `internal/preset/overlay.go`
+- Modify: `cmd/exec.go` (`--preset`/`--force` + ephemeral overlay), `cmd/preset.go` (`use`/`diff --project`, scopedPresetManager), `cmd/cmd_test.go`
+
+- [x] **Step 1:** `OverlayProfile` — copy-on-write profile view: symlink everything except preset-owned files/dirs, which are materialized as symlink-resolved copies (dangling links mirrored as-is).
+- [x] **Step 2:** `opm exec <profile> --preset <name>` applies the preset to the overlay; backups discarded with the temp dir; validation with `--force` override.
+- [x] **Step 3:** `opm preset use/diff --project` targets `./.opencode/` via a scoped manager; validation stays against the profile's opencode.json; opencode block warned and skipped.
+- [x] **Step 4:** Tests: project override isolation (global untouched, scoped diff clean), exec overlay end-to-end via `$XDG_CONFIG_HOME`, symlinked-agents-repo protection.

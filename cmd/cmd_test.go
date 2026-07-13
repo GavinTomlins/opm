@@ -1275,3 +1275,94 @@ func TestDoctor_ReportsPresetHealth(t *testing.T) {
 	assert.Contains(t, out, "broken")
 	assert.Contains(t, out, "problem(s) found")
 }
+
+func TestPreset_UseProjectWritesOverride(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "local", testLocalPreset)
+
+	projectDir := t.TempDir()
+	origOverride := projectDirOverride
+	projectDirOverride = projectDir
+	t.Cleanup(func() { projectDirOverride = origOverride })
+
+	out, _, err := h.run("preset", "use", "local", "--project")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	// The project override exists and holds the preset's assignments.
+	overridePath := filepath.Join(projectDir, ".opencode", "oh-my-openagent.json")
+	raw, err := os.ReadFile(overridePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "omlx/qwen3-coder-30b")
+
+	// The global live config is untouched.
+	globalRaw, err := os.ReadFile(filepath.Join(h.opencodeDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(globalRaw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(globalRaw), "omlx/qwen3-coder-30b")
+
+	// Diff --project is clean; global diff still shows pending changes.
+	out, _, err = h.run("preset", "diff", "local", "--project")
+	require.NoError(t, err)
+	assert.Contains(t, out, "No changes")
+	out, _, err = h.run("preset", "diff", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents.sisyphus.model")
+}
+
+func TestExec_WithPresetUsesEphemeralOverlay(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("create", "work")
+	require.NoError(t, err)
+
+	// Give the work profile a live config and an extra file.
+	workDir := h.store.ProfileDir("work")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "oh-my-openagent.json"), []byte(testLiveConfig), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "other.txt"), []byte("shared"), 0o644))
+	h.writePreset(t, "local", testLocalPreset)
+
+	// The child sees the patched config via XDG_CONFIG_HOME...
+	stdout, _, err := h.run("exec", "work", "--preset", "local", "--",
+		"sh", "-c", `cat "$XDG_CONFIG_HOME/opencode/oh-my-openagent.json"; cat "$XDG_CONFIG_HOME/opencode/other.txt"`)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "omlx/qwen3-coder-30b")
+	assert.Contains(t, stdout, "keep this comment")
+	assert.Contains(t, stdout, "shared")
+
+	// ...while the real profile is untouched.
+	raw, err := os.ReadFile(filepath.Join(workDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(raw), "omlx/qwen3-coder-30b")
+}
+
+func TestExec_WithPresetDoesNotMutateSymlinkedAgents(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("create", "work")
+	require.NoError(t, err)
+
+	// Dotfiles setup: the profile's agents dir is a symlink into a repo,
+	// with a markdown agent named by the preset.
+	repoDir := t.TempDir()
+	agentMd := "---\nmode: subagent\nmodel: kimi/kimi-for-coding\n---\n\nOracle body.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "sisyphus.md"), []byte(agentMd), 0o644))
+	workDir := h.store.ProfileDir("work")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "oh-my-openagent.json"), []byte(testLiveConfig), 0o644))
+	require.NoError(t, os.Symlink(repoDir, filepath.Join(workDir, "agents")))
+	h.writePreset(t, "local", testLocalPreset)
+
+	// The ephemeral session sees the synced markdown model...
+	stdout, _, err := h.run("exec", "work", "--preset", "local", "--",
+		"sh", "-c", `cat "$XDG_CONFIG_HOME/opencode/agents/sisyphus.md"`)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "omlx/qwen3-coder-30b")
+
+	// ...but the real repo file is untouched.
+	raw, err := os.ReadFile(filepath.Join(repoDir, "sisyphus.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(raw), "omlx/qwen3-coder-30b")
+}

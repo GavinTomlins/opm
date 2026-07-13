@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,34 @@ var presetManagerFactory = func() *preset.Manager {
 }
 
 func newPresetManager() *preset.Manager { return presetManagerFactory() }
+
+// projectDirOverride lets tests pin the --project working directory.
+var projectDirOverride = ""
+
+// scopedPresetManager returns the manager for a command's target scope:
+// the profile config dir normally, or ./.opencode when --project is set.
+// oh-my-openagent walks project dirs upward and the closest config wins,
+// so a project-level file overrides the global one for that project only.
+func scopedPresetManager(cmd *cobra.Command) (*preset.Manager, bool, error) {
+	project, _ := cmd.Flags().GetBool("project")
+	if !project {
+		return newPresetManager(), false, nil
+	}
+	dir := projectDirOverride
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, false, fmt.Errorf("determine working directory: %w", err)
+		}
+		dir = wd
+	}
+	s := newStore()
+	return preset.New(
+		filepath.Join(s.OpmDir(), "presets"),
+		filepath.Join(dir, ".opencode"),
+		filepath.Join(s.OpmDir(), "backups", "presets"),
+	), true, nil
+}
 
 var presetCmd = &cobra.Command{
 	Use:   "preset",
@@ -94,6 +123,8 @@ var presetRevertCmd = &cobra.Command{
 func init() {
 	presetCaptureCmd.Flags().Bool("force", false, "Overwrite an existing preset with the same name")
 	presetUseCmd.Flags().Bool("force", false, "Apply even when model validation or endpoint probes fail")
+	presetUseCmd.Flags().Bool("project", false, "Apply to ./.opencode/ as a project-level override instead of the profile config")
+	presetDiffCmd.Flags().Bool("project", false, "Diff against ./.opencode/ instead of the profile config")
 
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,
 		presetCaptureCmd, presetStatusCmd, presetRevertCmd)
@@ -151,7 +182,10 @@ func runPresetShow(cmd *cobra.Command, args []string) error {
 }
 
 func runPresetUse(cmd *cobra.Command, args []string) error {
-	m := newPresetManager()
+	m, project, err := scopedPresetManager(cmd)
+	if err != nil {
+		return err
+	}
 	p, err := m.Resolve(args[0])
 	if err != nil {
 		return err
@@ -159,9 +193,15 @@ func runPresetUse(cmd *cobra.Command, args []string) error {
 	if p.EntryCount() == 0 && len(p.Opencode) == 0 {
 		return fmt.Errorf("preset %q resolves to no agent, category, or opencode entries", p.Name)
 	}
+	if project && len(p.Opencode) > 0 {
+		output.Warning(cmd.ErrOrStderr(), "opencode block skipped in --project mode",
+			"top-level opencode.json fields are only applied to the profile config")
+	}
 
 	force, _ := cmd.Flags().GetBool("force")
-	if err := checkPreset(cmd, m, p, force); err != nil {
+	// Validate against the profile's opencode.json even in project mode —
+	// provider declarations are global, not per-project.
+	if err := checkPreset(cmd, newPresetManager(), p, force); err != nil {
 		return err
 	}
 
@@ -191,7 +231,10 @@ func runPresetUse(cmd *cobra.Command, args []string) error {
 }
 
 func runPresetDiff(cmd *cobra.Command, args []string) error {
-	m := newPresetManager()
+	m, _, err := scopedPresetManager(cmd)
+	if err != nil {
+		return err
+	}
 	p, err := m.Resolve(args[0])
 	if err != nil {
 		return err

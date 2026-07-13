@@ -96,6 +96,17 @@ Before applying, `use` validates every model reference against the profile's `op
 
 Presets also cover the other two places models hide: agents defined as markdown (`agent/*.md` frontmatter — the `model:` line is synced for any agent the preset names, everything else untouched) and the top-level `model`/`small_model` fields of `opencode.json` via an optional `"opencode"` block. Every apply backs up all touched files as one set, and `opm preset revert` restores the whole set together.
 
+Presets compose with profiles and projects:
+
+```sh
+# One session with the work profile on all-local models — global state untouched,
+# real profile files never modified (the preset is applied to an ephemeral copy).
+opm exec work --preset local
+
+# Pin this project to a preset via oh-my-openagent's closest-wins config walking.
+opm preset use local --project
+```
+
 ```jsonc
 // ~/.config/opm/presets/local.jsonc
 {
