@@ -109,9 +109,9 @@ func (m *Manager) captureOpencode() map[string]json.RawMessage {
 	return out
 }
 
-// applyOpencode patches the named top-level fields in opencode.json[c],
+// patchOpencode returns raw with the named top-level fields patched,
 // preserving comments and everything else.
-func (m *Manager) applyOpencode(changes []Change, backup *backupSet) error {
+func patchOpencode(path string, raw []byte, changes []Change) ([]byte, error) {
 	var ops []patchOp
 	for _, c := range changes {
 		if c.Section != "opencode" {
@@ -124,9 +124,24 @@ func (m *Manager) applyOpencode(changes []Change, backup *backupSet) error {
 		ops = append(ops, patchOp{Op: op, Path: "/" + escapePointer(c.Name), Value: c.newRaw})
 	}
 	if len(ops) == 0 {
-		return nil
+		return nil, nil
 	}
+	patch, err := json.Marshal(ops)
+	if err != nil {
+		return nil, fmt.Errorf("encode patch: %w", err)
+	}
+	value, err := hujson.Parse(bytes.Clone(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if err := value.Patch(patch); err != nil {
+		return nil, fmt.Errorf("patch %s: %w", path, err)
+	}
+	return value.Pack(), nil
+}
 
+// applyOpencode patches the named top-level fields in opencode.json[c].
+func (m *Manager) applyOpencode(changes []Change, backup *backupSet) error {
 	path, target, raw, ok, err := m.opencodeFile()
 	if err != nil {
 		return err
@@ -134,16 +149,12 @@ func (m *Manager) applyOpencode(changes []Change, backup *backupSet) error {
 	if !ok {
 		return nil
 	}
-	patch, err := json.Marshal(ops)
+	patched, err := patchOpencode(path, raw, changes)
 	if err != nil {
-		return fmt.Errorf("encode patch: %w", err)
+		return err
 	}
-	value, err := hujson.Parse(bytes.Clone(raw))
-	if err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
-	}
-	if err := value.Patch(patch); err != nil {
-		return fmt.Errorf("patch %s: %w", path, err)
+	if patched == nil {
+		return nil
 	}
 	if err := backup.add(target, raw); err != nil {
 		return err
@@ -152,7 +163,7 @@ func (m *Manager) applyOpencode(changes []Change, backup *backupSet) error {
 	if fi, err := os.Stat(target); err == nil {
 		perm = fi.Mode().Perm()
 	}
-	if err := writeFileAtomic(target, value.Pack(), perm); err != nil {
+	if err := writeFileAtomic(target, patched, perm); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

@@ -88,8 +88,15 @@ var presetUseCmd = &cobra.Command{
 }
 
 var presetDiffCmd = &cobra.Command{
-	Use:               "diff <name>",
-	Short:             "Show what 'preset use' would change, without applying",
+	Use:   "diff <name>",
+	Short: "Show what 'preset use' would change, without applying",
+	Long: `Shows the field-level changes applying the preset would make, without
+touching any file.
+
+With --files <dir>, additionally renders every file the apply would touch
+into <dir>/before/ and <dir>/after/ trees for external diff tools:
+
+  opm preset diff local --files /tmp/pd && difft /tmp/pd/before /tmp/pd/after`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: singleArgPresetCompletion,
 	SilenceUsage:      true,
@@ -125,6 +132,7 @@ func init() {
 	presetUseCmd.Flags().Bool("force", false, "Apply even when model validation or endpoint probes fail")
 	presetUseCmd.Flags().Bool("project", false, "Apply to ./.opencode/ as a project-level override instead of the profile config")
 	presetDiffCmd.Flags().Bool("project", false, "Diff against ./.opencode/ instead of the profile config")
+	presetDiffCmd.Flags().String("files", "", "Render before/ and after/ file trees into this directory for external diff tools")
 
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,
 		presetCaptureCmd, presetStatusCmd, presetRevertCmd)
@@ -248,6 +256,24 @@ func runPresetDiff(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	output.PresetChanges(cmd.OutOrStdout(), changes)
+
+	filesDir, _ := cmd.Flags().GetString("files")
+	if filesDir != "" {
+		rendered, err := m.RenderFiles(p)
+		if err != nil {
+			return err
+		}
+		beforeDir, afterDir, err := preset.WriteRenderDir(filesDir, rendered)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		output.Success(cmd.OutOrStdout(),
+			fmt.Sprintf("Rendered %d file(s) for external diff", len(rendered)),
+			output.ShortenHome(beforeDir),
+			output.ShortenHome(afterDir),
+			"e.g. difft "+output.ShortenHome(beforeDir)+" "+output.ShortenHome(afterDir))
+	}
 	return nil
 }
 

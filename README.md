@@ -90,6 +90,12 @@ opm preset status         # which preset the live config matches
 opm preset revert         # restore the pre-apply backup
 ```
 
+Prefer your own diff viewer? `--files` renders before/after trees of every file the apply would touch, without writing to the live config:
+
+```sh
+opm preset diff local --files /tmp/pd && difft /tmp/pd/before /tmp/pd/after
+```
+
 Presets patch surgically: only the model-tuning keys (`model`, `variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`, `top_p`, `maxTokens`) of the agents and categories the preset names are touched. Prompts, permissions, comments, and everything else in the live config survive every switch. Presets support `extends` inheritance, and each apply writes a timestamped backup first.
 
 Before applying, `use` validates every model reference against the profile's `opencode.json` provider block and pings loopback-hosted providers (Ollama, LM Studio, omlx, …) so you never switch onto a model that doesn't exist or a local server that isn't running — override with `--force`. `opm doctor` checks the health of every stored preset.
@@ -167,7 +173,7 @@ Everything `opm` exposes for day-to-day use, without context trees.
 | `opm preset list` | List model presets. `●` marks presets matching the live config. |
 | `opm preset show <name>` | Show a preset's resolved model mapping (after `extends`). |
 | `opm preset use <name>` | Apply a preset to the live oh-my-openagent config (backs up first). |
-| `opm preset diff <name>` | Dry-run: show exactly what `use` would change. |
+| `opm preset diff <name>` | Dry-run: show exactly what `use` would change. `--files <dir>` renders before/after trees for external diff tools. |
 | `opm preset capture <name>` | Snapshot the live model assignments into a new preset. |
 | `opm preset status` | Report which preset the live config matches. |
 | `opm preset revert` | Restore the live config from the most recent preset backup. |

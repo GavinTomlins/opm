@@ -1366,3 +1366,28 @@ func TestExec_WithPresetDoesNotMutateSymlinkedAgents(t *testing.T) {
 	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
 	assert.NotContains(t, string(raw), "omlx/qwen3-coder-30b")
 }
+
+func TestPreset_DiffFilesRendersTrees(t *testing.T) {
+	h := newHarness(t)
+	livePath := h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "local", testLocalPreset)
+
+	renderDir := filepath.Join(t.TempDir(), "pd")
+	out, _, err := h.run("preset", "diff", "local", "--files", renderDir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents.sisyphus.model")
+	assert.Contains(t, out, "Rendered 1 file(s) for external diff")
+
+	before, err := os.ReadFile(filepath.Join(renderDir, "before", "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(before), "kimi/kimi-for-coding")
+	after, err := os.ReadFile(filepath.Join(renderDir, "after", "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(after), "omlx/qwen3-coder-30b")
+	assert.Contains(t, string(after), "keep this comment")
+
+	// The live config itself is untouched.
+	raw, err := os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+}

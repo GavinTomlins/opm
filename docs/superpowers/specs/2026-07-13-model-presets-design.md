@@ -114,7 +114,7 @@ resolves to, so they work pre-`opm init` too.
 | `opm preset list` | All presets; ● marks preset(s) matching the live config |
 | `opm preset show <name>` | Resolved mapping after `extends` |
 | `opm preset use <name>` | Backup + surgical apply to the live config |
-| `opm preset diff <name>` | Dry-run: exact field-level changes `use` would make |
+| `opm preset diff <name>` | Dry-run: exact field-level changes `use` would make. `--files <dir>` additionally renders before/after trees of every file the apply would touch (same patching code paths, zero writes) for external diff tools like difftastic or Hunk |
 | `opm preset capture <name>` | Snapshot live tuning keys into a new preset (`--force` to overwrite) |
 | `opm preset status` | Which preset matches the live config, or "no preset matches" |
 | `opm preset revert` | Restore the most recent pre-apply backup |
