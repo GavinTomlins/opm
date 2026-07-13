@@ -92,6 +92,8 @@ opm preset revert         # restore the pre-apply backup
 
 Presets patch surgically: only the model-tuning keys (`model`, `variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`, `top_p`, `maxTokens`) of the agents and categories the preset names are touched. Prompts, permissions, comments, and everything else in the live config survive every switch. Presets support `extends` inheritance, and each apply writes a timestamped backup first.
 
+Before applying, `use` validates every model reference against the profile's `opencode.json` provider block and pings loopback-hosted providers (Ollama, LM Studio, omlx, …) so you never switch onto a model that doesn't exist or a local server that isn't running — override with `--force`. `opm doctor` checks the health of every stored preset.
+
 ```jsonc
 // ~/.config/opm/presets/local.jsonc
 {

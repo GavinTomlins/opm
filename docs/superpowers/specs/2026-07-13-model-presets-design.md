@@ -122,10 +122,25 @@ resolves to, so they work pre-`opm init` too.
 `capture` is the migration path: run it once and today's hand-built config becomes the
 first preset, zero authoring.
 
-## Out of scope for phase 1 (later phases)
+## Phase 2: validation & doctor (implemented)
 
-- Model-reference validation against the profile's `opencode.json` provider block, and
-  local-endpoint reachability probes (phase 2, plus `opm doctor` integration).
+`opm preset use` validates before applying; failures block unless `--force`:
+
+- **Model-reference validation** against the profile's `opencode.json[c]` provider block
+  (primary models and `fallback_models`): provider declared with an explicit `models` map
+  and the model absent → **fail**; provider not declared at all → **warn** (OpenCode knows
+  many providers natively); provider declared without a models map → OK (discovery); no
+  `opencode.json` → warn and skip.
+- **Endpoint probes** for loopback-hosted providers (`localhost`, `127.x`, `::1`) the
+  preset references: `GET <baseURL>/models`, 2s timeout. Any HTTP response counts as
+  alive; connection failure → **fail**. Non-loopback providers are never probed.
+
+`opm doctor` gains a **Presets** section: every stored preset must parse, resolve its
+extends chain, and pass reference validation; shadowed live-config candidates are warned
+about. Doctor does not probe endpoints (no network in doctor); probes run on `use`.
+
+## Out of scope (later phases)
+
 - Agent-markdown frontmatter rewriting (`agents/*.md` `model:` key) and top-level
   `opencode.json` model fields (phase 3).
 - `opm exec --preset` and per-project `.opencode/oh-my-openagent.jsonc` writing (phase 4).

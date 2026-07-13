@@ -46,3 +46,17 @@
 ### Task 4: Verify
 
 - [x] `just fmt` and `just verify` pass clean.
+
+---
+
+## Phase 2: validation, probes, doctor
+
+**Files:**
+- Create: `internal/preset/validate.go`, `internal/preset/validate_test.go`
+- Modify: `cmd/preset.go` (`use --force` + checkPreset), `internal/doctor/doctor.go` (`RunPresets`), `cmd/doctor.go`, `cmd/cmd_test.go`
+
+- [x] **Step 1:** `ValidateRefs` — check primary + fallback model refs against the profile's `opencode.json[c]` provider block (fail on undeclared model under a provider with an explicit models map; warn on undeclared provider; warn+skip when no opencode.json).
+- [x] **Step 2:** `ProbeEndpoints` — GET `<baseURL>/models` (2s timeout) for loopback-hosted providers the preset references; connection failure → fail issue.
+- [x] **Step 3:** `preset use` runs both; failures block without `--force`; warnings always printed.
+- [x] **Step 4:** `doctor.RunPresets` — Presets section (parse/resolve/refs per preset, shadowed-candidate warnings).
+- [x] **Step 5:** Tests: validation matrix, live/dead httptest probe, loopback detection, cmd-level `--force` gate, doctor output.

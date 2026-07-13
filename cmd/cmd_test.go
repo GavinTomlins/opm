@@ -1238,3 +1238,40 @@ func TestPreset_WarnsOnShadowedConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stderr, "Multiple oh-my-openagent config files found")
 }
+
+func TestPreset_UseBlockedByValidation(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	// opencode.json declares omlx with an explicit models map that does NOT
+	// contain the preset's model.
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://api.example.com/v1" },
+			"models": { "some-other-model": {} } } }
+	}`), 0o644))
+	h.writePreset(t, "local", `{ "agents": { "sisyphus": "omlx/qwen3-coder-30b" } }`)
+
+	_, stderr, err := h.run("preset", "use", "local")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed validation")
+	assert.Contains(t, stderr, "qwen3-coder-30b")
+
+	// --force applies anyway.
+	out, _, err := h.run("preset", "use", "local", "--force")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+}
+
+func TestDoctor_ReportsPresetHealth(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	h.writePreset(t, "good", `{ "agents": { "a": "p/m" } }`)
+	h.writePreset(t, "broken", `{ not json`)
+
+	out, _, err := h.run("doctor")
+	require.Error(t, err) // broken preset is a failure → exit 1
+	assert.Contains(t, out, "Presets")
+	assert.Contains(t, out, "good")
+	assert.Contains(t, out, "broken")
+	assert.Contains(t, out, "problem(s) found")
+}

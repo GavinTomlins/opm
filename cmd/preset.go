@@ -93,6 +93,7 @@ var presetRevertCmd = &cobra.Command{
 
 func init() {
 	presetCaptureCmd.Flags().Bool("force", false, "Overwrite an existing preset with the same name")
+	presetUseCmd.Flags().Bool("force", false, "Apply even when model validation or endpoint probes fail")
 
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,
 		presetCaptureCmd, presetStatusCmd, presetRevertCmd)
@@ -157,6 +158,11 @@ func runPresetUse(cmd *cobra.Command, args []string) error {
 	}
 	if p.EntryCount() == 0 {
 		return fmt.Errorf("preset %q resolves to no agent or category entries", p.Name)
+	}
+
+	force, _ := cmd.Flags().GetBool("force")
+	if err := checkPreset(cmd, m, p, force); err != nil {
+		return err
 	}
 
 	result, err := m.Apply(p)
@@ -257,6 +263,34 @@ func runPresetRevert(cmd *cobra.Command, args []string) error {
 	output.Success(cmd.OutOrStdout(), "Restored "+output.ShortenHome(restoredTo),
 		"from backup "+backupName,
 		"restart OpenCode sessions to pick up the change")
+	return nil
+}
+
+// checkPreset validates model refs against the profile's opencode.json and
+// probes loopback provider endpoints. Warnings are printed; failures block
+// the apply unless force is set.
+func checkPreset(cmd *cobra.Command, m *preset.Manager, p *preset.Preset, force bool) error {
+	issues, err := m.ValidateRefs(p)
+	if err != nil {
+		return err
+	}
+	probeIssues, err := m.ProbeEndpoints(p)
+	if err != nil {
+		return err
+	}
+	issues = append(issues, probeIssues...)
+
+	for _, issue := range issues {
+		switch issue.Severity {
+		case preset.SeverityFail:
+			output.Failure(cmd.ErrOrStderr(), issue.Message)
+		default:
+			output.Warning(cmd.ErrOrStderr(), issue.Message)
+		}
+	}
+	if preset.HasFailures(issues) && !force {
+		return fmt.Errorf("preset %q failed validation — fix the issues above or apply anyway with --force", p.Name)
+	}
 	return nil
 }
 
