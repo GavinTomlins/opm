@@ -97,6 +97,52 @@ func (m *Manager) readLiveState(lf LiveFile) (*liveState, []byte, error) {
 	return state, raw, nil
 }
 
+// LiveEntry describes one agent or category's current routing for
+// interactive tools that need to enumerate "what can a preset assign a
+// model to". Entry contains only tuning keys, straight from the live
+// config — never prompt/permission content.
+type LiveEntry struct {
+	Name    string
+	Section string // "agents" or "categories"
+	Entry   Entry
+}
+
+// LiveEntries returns every agent and category name in the live
+// oh-my-openagent config, sorted, agents first. Returns an empty slice
+// (not an error) when no live config exists yet.
+func (m *Manager) LiveEntries() ([]LiveEntry, error) {
+	lf, err := m.LiveFile()
+	if err != nil {
+		return nil, err
+	}
+	state, _, err := m.readLiveState(lf)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []LiveEntry
+	for _, section := range []struct {
+		label string
+		live  map[string]map[string]json.RawMessage
+	}{{"agents", state.agents}, {"categories", state.categories}} {
+		names := make([]string, 0, len(section.live))
+		for name := range section.live {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			entry := Entry{}
+			for key, val := range section.live[name] {
+				if tuningKeys[key] {
+					entry[key] = val
+				}
+			}
+			out = append(out, LiveEntry{Name: name, Section: section.label, Entry: entry})
+		}
+	}
+	return out, nil
+}
+
 // Diff computes the field-level changes applying p would make across every
 // surface a preset owns: the oh-my-openagent config, markdown agent
 // frontmatter, and top-level opencode.json fields. An empty result means

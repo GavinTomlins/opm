@@ -1438,3 +1438,158 @@ func TestPreset_ModelsListsProviders(t *testing.T) {
 	assert.Contains(t, out, "anthropic")
 	assert.Contains(t, out, "discovered by OpenCode at runtime")
 }
+
+// runWithInput runs the root command with stdin fed from input, for
+// interactive commands like `preset edit`.
+func (h *cmdHarness) runWithInput(t *testing.T, input string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	rootCmd.SetIn(strings.NewReader(input))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+	return h.run(args...)
+}
+
+func TestPresetEdit_CreateNew(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig) // agent "sisyphus", category "quick"
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {}, "model-b": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",     // description
+		"1",    // sisyphus -> catalog #1 (omlx/model-a)
+		"",     // variant blank
+		"2",    // quick -> catalog #2 (omlx/model-b)
+		"high", // variant
+		"",     // save confirm (blank = yes)
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "wizard1")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Saved preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "wizard1.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"model": "omlx/model-a"`)
+	assert.Contains(t, string(data), `"model": "omlx/model-b"`)
+	assert.Contains(t, string(data), `"variant": "high"`)
+}
+
+func TestPresetEdit_ExistingClearAndKeep(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig) // agent "sisyphus", category "quick"
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {}, "model-b": {} } } }
+	}`), 0o644))
+	h.writePreset(t, "existing", `{
+		"agents": { "sisyphus": "omlx/model-a", "legacy": "omlx/model-b" }
+	}`)
+
+	// entry order: agents:sisyphus, categories:quick, agents:legacy (folded in)
+	input := strings.Join([]string{
+		"",      // description
+		"",      // sisyphus -> keep
+		"",      // quick -> keep (skip; stays unset)
+		"clear", // legacy -> remove from preset
+		"",      // save confirm (yes)
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "existing")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Editing existing preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "existing.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"omlx/model-a"`)
+	assert.NotContains(t, text, "legacy")
+	assert.NotContains(t, text, "omlx/model-b")
+	assert.NotContains(t, text, "categories")
+}
+
+func TestPresetEdit_DeclineSave(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",  // description
+		"1", // sisyphus -> catalog #1
+		"",  // variant blank
+		"",  // quick -> skip
+		"n", // decline save
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "declined")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Aborted")
+
+	_, statErr := os.Stat(filepath.Join(h.store.OpmDir(), "presets", "declined.json"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestPresetEdit_InvalidInputReprompts(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",   // description
+		"99", // sisyphus -> out of range, reprompt
+		"1",  // sisyphus -> catalog #1
+		"",   // variant blank
+		"",   // quick -> skip
+		"n",  // decline save
+	}, "\n") + "\n"
+
+	_, stderr, err := h.runWithInput(t, input, "preset", "edit", "retry")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "no model numbered 99")
+}
+
+func TestPresetEdit_CategoryRouting(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",        // description
+		"c:quick", // sisyphus -> category routing
+		"",        // variant blank
+		"",        // quick -> skip
+		"y",       // save
+	}, "\n") + "\n"
+
+	_, _, err := h.runWithInput(t, input, "preset", "edit", "catroute")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "catroute.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"category": "quick"`)
+	assert.NotContains(t, string(data), `"model"`)
+}
+
+func TestPresetEdit_NoProvidersDeclared(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	// No opencode.json at all.
+	_, _, err := h.run("preset", "edit", "noprov")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no opencode.json")
+}

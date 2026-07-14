@@ -287,3 +287,35 @@ func jsonUnmarshalJSONC(data []byte, v any) error {
 	}
 	return json.Unmarshal(std, v)
 }
+
+func TestManager_LiveEntries(t *testing.T) {
+	m, opencodeDir := newTestManager(t)
+	writeLive(t, opencodeDir, "oh-my-openagent.json", liveFixture)
+
+	entries, err := m.LiveEntries()
+	require.NoError(t, err)
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Section+":"+e.Name)
+	}
+	assert.Contains(t, names, "agents:sisyphus")
+	assert.Contains(t, names, "agents:oracle")
+	assert.Contains(t, names, "agents:librarian")
+	assert.Contains(t, names, "categories:quick")
+
+	for _, e := range entries {
+		if e.Name == "sisyphus" {
+			assert.Equal(t, "kimi-for-coding-oauth/kimi-for-coding", e.Entry.Model())
+			_, hasPrompt := e.Entry["prompt"]
+			assert.False(t, hasPrompt, "LiveEntries must only surface tuning keys, not prompt/permission")
+		}
+	}
+}
+
+func TestManager_LiveEntries_NoLiveFile(t *testing.T) {
+	m, _ := newTestManager(t)
+	entries, err := m.LiveEntries()
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}

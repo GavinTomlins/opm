@@ -89,6 +89,10 @@ opm preset models
 # "Set everything to X" without touching an editor:
 opm preset create opus --all anthropic/claude-opus-4-8
 
+# Prefer picking models interactively, agent by agent? A numbered catalog,
+# no editor needed:
+opm preset edit tiered
+
 # Author richer presets by hand (JSON or JSONC, string shorthand supported), then:
 opm preset diff local     # dry-run: exactly what would change
 opm preset use local      # bulk-swap every agent/category it names
@@ -182,6 +186,7 @@ Everything `opm` exposes for day-to-day use, without context trees.
 | `opm preset diff <name>` | Dry-run: show exactly what `use` would change. `--files <dir>` renders before/after trees for external diff tools. |
 | `opm preset capture <name>` | Snapshot the live model assignments into a new preset. |
 | `opm preset create <name> --all <ref>` | Generate a preset assigning one model to every agent and category. |
+| `opm preset edit <name>` | Interactively assign models per agent/category from a numbered catalog. Creates or updates. |
 | `opm preset models` | List available models per provider; live-queries loopback servers' `/models`. |
 | `opm preset status` | Report which preset the live config matches. |
 | `opm preset revert` | Restore the live config from the most recent preset backup. |
