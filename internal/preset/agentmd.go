@@ -88,8 +88,10 @@ func setFrontmatterModel(data []byte, model string) ([]byte, error) {
 // diffAgentMd computes the markdown-frontmatter changes applying p would
 // make: for every preset agent entry whose name has a markdown definition
 // in the profile, the file's frontmatter model is synced to the entry's
-// model. Files without frontmatter are reported as warnings elsewhere and
-// skipped here.
+// model — but only when the file already pins one. A markdown agent
+// without a model line inherits the session default by design; presets
+// respect that and never force-pin it (which also keeps capture → status
+// round-trips clean). Files without frontmatter are likewise skipped.
 func (m *Manager) diffAgentMd(p *Preset) ([]Change, error) {
 	names := make([]string, 0, len(p.Agents))
 	for name := range p.Agents {
@@ -108,17 +110,16 @@ func (m *Manager) diffAgentMd(p *Preset) ([]Change, error) {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
 		current, hasModel := readFrontmatterModel(data)
-		want := p.Agents[name].Model()
-		if hasModel && current == want {
+		if !hasModel {
 			continue
 		}
-		op := OpReplace
-		if !hasModel {
-			op = OpAdd
+		want := p.Agents[name].Model()
+		if current == want {
+			continue
 		}
 		changes = append(changes, Change{
 			Section: "agent-md", Name: name, Key: "model",
-			Old: current, New: want, Op: op,
+			Old: current, New: want, Op: OpReplace,
 			mdPath: path,
 		})
 	}

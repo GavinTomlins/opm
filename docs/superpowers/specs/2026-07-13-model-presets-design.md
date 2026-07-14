@@ -148,9 +148,11 @@ oh-my-openagent config:
   (`<config>/agent/*.md` or `agents/*.md`, both forms supported) shadow same-named
   plugin agents, so they must stay in sync. For every preset `agents` entry whose name
   has a markdown definition in the profile, apply rewrites only the frontmatter
-  `model:` line (adding it when absent) to the entry's model. Description, mode,
-  permissions, prompt body — untouched. Markdown files that are symlinks are written
-  through, not replaced. Files without frontmatter are skipped.
+  `model:` line to the entry's model — but only when the file already pins one. A
+  markdown agent without a model line inherits the session default by design; presets
+  respect that and never force-pin it (which also keeps capture → status round-trips
+  clean). Description, mode, permissions, prompt body — untouched. Markdown files that
+  are symlinks are written through, not replaced. Files without frontmatter are skipped.
 - **`opencode` block** — a preset may set top-level `opencode.json` fields:
   `{ "opencode": { "model": "p/m", "small_model": "p/m" } }`. Unlike entries, this
   block only sets the keys it names (opm does not own the rest of opencode.json);

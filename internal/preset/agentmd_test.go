@@ -94,6 +94,35 @@ func TestApply_SyncsAgentMarkdown(t *testing.T) {
 	assert.Empty(t, result.Changes)
 }
 
+func TestApply_SkipsMarkdownWithoutModelPin(t *testing.T) {
+	m, opencodeDir := newTestManager(t)
+	writeLive(t, opencodeDir, "oh-my-openagent.json", liveFixture)
+	// A markdown agent that deliberately omits model: it inherits the
+	// session default, and presets must not force-pin it.
+	mdPath := writeAgentMd(t, opencodeDir, "agents", "oracle",
+		"---\nmode: subagent\ndescription: unpinned\n---\n\nBody.\n")
+	writePreset(t, m, "local", localPreset)
+
+	original, err := os.ReadFile(mdPath)
+	require.NoError(t, err)
+
+	result, err := m.Apply(mustResolve(t, m, "local"))
+	require.NoError(t, err)
+	for _, c := range result.Changes {
+		assert.NotEqual(t, "agent-md", c.Section)
+	}
+	after, err := os.ReadFile(mdPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(original), string(after))
+
+	// Capture → status round-trip stays clean despite the unpinned file.
+	_, _, err = m.Capture("snap", false)
+	require.NoError(t, err)
+	changes, err := m.Diff(mustResolve(t, m, "snap"))
+	require.NoError(t, err)
+	assert.Empty(t, changes)
+}
+
 func TestApply_AgentMarkdownSymlinkPreserved(t *testing.T) {
 	m, opencodeDir := newTestManager(t)
 	writeLive(t, opencodeDir, "oh-my-openagent.json", liveFixture)
