@@ -17,9 +17,13 @@ import (
 
 // tuningKeys are the only keys a preset entry may set and the only keys
 // Apply may touch in the live config. Prompt/permission and every other
-// key are out of a preset's jurisdiction by design.
+// key are out of a preset's jurisdiction by design. The set mirrors the
+// model-tuning surface of upstream's oh-my-opencode.schema.json (v4.17.x):
+// category routes an agent to a model tier instead of a direct model;
+// providerOptions and textVerbosity are per-model provider tuning.
 var tuningKeys = map[string]bool{
 	"model":           true,
+	"category":        true,
 	"variant":         true,
 	"fallback_models": true,
 	"reasoningEffort": true,
@@ -27,12 +31,15 @@ var tuningKeys = map[string]bool{
 	"temperature":     true,
 	"top_p":           true,
 	"maxTokens":       true,
+	"textVerbosity":   true,
+	"providerOptions": true,
 }
 
 // tuningKeyOrder lists tuning keys in display order (model first).
 var tuningKeyOrder = []string{
-	"model", "variant", "fallback_models", "reasoningEffort",
-	"thinking", "temperature", "top_p", "maxTokens",
+	"model", "category", "variant", "fallback_models", "reasoningEffort",
+	"thinking", "temperature", "top_p", "maxTokens", "textVerbosity",
+	"providerOptions",
 }
 
 // Entry is the full tuning of a single agent or category. Keys are
@@ -103,20 +110,34 @@ func (e Entry) Summary() string {
 }
 
 // validate checks entry invariants beyond key restriction: every entry
-// must pin a model in provider/model form, because within an entry the
-// preset is authoritative and an entry without a model would strip the
-// live model on apply.
+// must route somewhere — a direct model in provider/model form, or (for
+// agents) a category tier — because within an entry the preset is
+// authoritative and an entry without either would strip the live routing
+// on apply.
 func (e Entry) validate(section, name string) error {
-	raw, ok := e["model"]
-	if !ok {
-		return fmt.Errorf("%s.%s: entry must set \"model\"", section, name)
+	modelRaw, hasModel := e["model"]
+	categoryRaw, hasCategory := e["category"]
+
+	if hasCategory && section == "categories" {
+		return fmt.Errorf("%s.%s: \"category\" is only valid on agent entries", section, name)
 	}
-	var model string
-	if err := json.Unmarshal(raw, &model); err != nil {
-		return fmt.Errorf("%s.%s: \"model\" must be a string", section, name)
+	if !hasModel && !hasCategory {
+		return fmt.Errorf("%s.%s: entry must set \"model\" (or, for agents, \"category\")", section, name)
 	}
-	if !strings.Contains(model, "/") {
-		return fmt.Errorf("%s.%s: model %q must use provider/model form", section, name, model)
+	if hasModel {
+		var model string
+		if err := json.Unmarshal(modelRaw, &model); err != nil {
+			return fmt.Errorf("%s.%s: \"model\" must be a string", section, name)
+		}
+		if !strings.Contains(model, "/") {
+			return fmt.Errorf("%s.%s: model %q must use provider/model form", section, name, model)
+		}
+	}
+	if hasCategory {
+		var category string
+		if err := json.Unmarshal(categoryRaw, &category); err != nil || category == "" {
+			return fmt.Errorf("%s.%s: \"category\" must be a non-empty string", section, name)
+		}
 	}
 	return nil
 }

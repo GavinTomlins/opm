@@ -67,3 +67,40 @@ func TestEntry_Summary(t *testing.T) {
 	sum := p.Agents["sisyphus"].Summary()
 	assert.Equal(t, `omlx/qwen3-coder-30b variant=max thinking={"type":"enabled"}`, sum)
 }
+
+func TestParse_CategoryRoutedAgent(t *testing.T) {
+	p, err := Parse("tiers", []byte(`{
+		"agents": {
+			"explore": { "category": "quick" },
+			"oracle": { "category": "deep", "variant": "high" }
+		}
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, "", p.Agents["explore"].Model())
+	assert.Equal(t, `"quick"`, string(p.Agents["explore"]["category"]))
+
+	// category is agent-only: rejected on category entries.
+	_, err = Parse("bad", []byte(`{ "categories": { "quick": { "category": "deep" } } }`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `only valid on agent entries`)
+
+	// Entries still need routing of some kind.
+	_, err = Parse("bad", []byte(`{ "agents": { "a": { "variant": "max" } } }`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `must set "model"`)
+}
+
+func TestParse_NewTuningKeysAccepted(t *testing.T) {
+	p, err := Parse("modern", []byte(`{
+		"agents": {
+			"sisyphus": {
+				"model": "openai/gpt-5.6-terra",
+				"textVerbosity": "low",
+				"providerOptions": { "openai": { "reasoningSummary": "detailed" } }
+			}
+		}
+	}`))
+	require.NoError(t, err)
+	sum := p.Agents["sisyphus"].Summary()
+	assert.Contains(t, sum, "textVerbosity=low")
+}

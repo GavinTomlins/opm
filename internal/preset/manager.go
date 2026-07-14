@@ -183,8 +183,11 @@ var liveCandidates = []string{
 // defaultLiveName is the file created when no live config exists yet.
 const defaultLiveName = "oh-my-openagent.json"
 
-// omoSchemaURL is written into freshly created live configs.
-const omoSchemaURL = "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/master/assets/oh-my-openagent.schema.json"
+// omoSchemaURL is written into freshly created live configs. This is the
+// canonical URL from upstream's configuration reference — note the schema
+// asset keeps the legacy basename and lives on the dev branch; an
+// oh-my-openagent.schema.json does not exist.
+const omoSchemaURL = "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json"
 
 // LiveFile describes the oh-my-openagent config file a preset applies to.
 type LiveFile struct {

@@ -31,8 +31,13 @@ The cardinal rule that fixes what previous attempts got wrong:
 
 ### Tuning keys (the only keys a preset may set, and the only keys apply may touch)
 
-`model`, `variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`,
-`top_p`, `maxTokens`
+`model`, `category` (agents only — routes to a model tier instead of a direct model),
+`variant`, `fallback_models`, `reasoningEffort`, `thinking`, `temperature`, `top_p`,
+`maxTokens`, `textVerbosity`, `providerOptions`
+
+The set mirrors the model-tuning surface of upstream's `oh-my-opencode.schema.json`
+(v4.17.x). Every entry must route somewhere: a `model` in provider/model form, or (for
+agents) a `category`.
 
 Within an entry the preset is **authoritative**: tuning keys the preset entry does not
 specify are *removed* from the live entry (no stale `variant: max` left behind on a model

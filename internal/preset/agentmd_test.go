@@ -236,3 +236,45 @@ func TestCapture_IncludesOpencodeBlock(t *testing.T) {
 	require.NotNil(t, p.Opencode)
 	assert.Equal(t, `"kimi/kimi-for-coding"`, string(p.Opencode["model"]))
 }
+
+func TestCategoryRoutedEntry_RoundTripAndMdSkip(t *testing.T) {
+	m, opencodeDir := newTestManager(t)
+	// A live config where one agent routes via category instead of model.
+	writeLive(t, opencodeDir, "oh-my-openagent.json", `{
+		"agents": {
+			"explore": { "category": "quick", "prompt": "keep" },
+			"sisyphus": { "model": "kimi/kimi-for-coding" }
+		},
+		"categories": { "quick": { "model": "kimi/kimi-for-coding" } }
+	}`)
+	// explore also has a markdown file pinning a model — category-routed
+	// preset entries must not touch it.
+	mdPath := writeAgentMd(t, opencodeDir, "agents", "explore",
+		"---\nmode: subagent\nmodel: kimi/kimi-for-coding\n---\n\nBody.\n")
+	originalMd, err := os.ReadFile(mdPath)
+	require.NoError(t, err)
+
+	// Capture picks up the category-routed entry and round-trips clean.
+	p, _, err := m.Capture("snap", false)
+	require.NoError(t, err)
+	assert.Equal(t, `"quick"`, string(p.Agents["explore"]["category"]))
+	changes, err := m.Diff(mustResolve(t, m, "snap"))
+	require.NoError(t, err)
+	assert.Empty(t, changes)
+
+	// Applying a preset that re-routes the category leaves the md file alone.
+	writePreset(t, m, "tiers", `{
+		"agents": { "explore": { "category": "deep" } },
+		"categories": { "quick": "ollama/llama3.1:8b" }
+	}`)
+	_, err = m.Apply(mustResolve(t, m, "tiers"))
+	require.NoError(t, err)
+	afterMd, err := os.ReadFile(mdPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(originalMd), string(afterMd))
+
+	live := parseLive(t, filepath.Join(opencodeDir, "oh-my-openagent.json"))
+	explore := live["agents"].(map[string]any)["explore"].(map[string]any)
+	assert.Equal(t, "deep", explore["category"])
+	assert.Equal(t, "keep", explore["prompt"])
+}

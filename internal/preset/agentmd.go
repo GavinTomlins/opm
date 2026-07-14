@@ -114,6 +114,10 @@ func (m *Manager) diffAgentMd(p *Preset) ([]Change, error) {
 			continue
 		}
 		want := p.Agents[name].Model()
+		if want == "" {
+			// Category-routed entry — no direct model to sync into markdown.
+			continue
+		}
 		if current == want {
 			continue
 		}

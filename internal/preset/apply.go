@@ -445,7 +445,9 @@ func captureSection(live map[string]map[string]json.RawMessage) map[string]Entry
 				entry[key] = val
 			}
 		}
-		if entry.Model() == "" {
+		// Keep entries that route somewhere (direct model or category);
+		// prompt/permission-only overrides are not preset content.
+		if entry.Model() == "" && entry["category"] == nil {
 			continue
 		}
 		out[name] = entry
