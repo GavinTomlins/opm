@@ -126,6 +126,8 @@ resolves to, so they work pre-`opm init` too.
 | `opm preset use <name>` | Backup + surgical apply to the live config |
 | `opm preset diff <name>` | Dry-run: exact field-level changes `use` would make. `--files <dir>` additionally renders before/after trees of every file the apply would touch (same patching code paths, zero writes) for external diff tools like difftastic or Hunk |
 | `opm preset capture <name>` | Snapshot live tuning keys into a new preset (`--force` to overwrite) |
+| `opm preset create <name> --all <ref>` | Generate a preset assigning one model to every agent/category entry in the live config — the "set everything to X" one-liner |
+| `opm preset models` | Model discovery: declared models per provider from `opencode.json`, plus a live `/models` query of loopback-hosted providers so the listing reflects what local servers actually serve right now (marks declared-but-not-served and served-but-not-declared) |
 | `opm preset status` | Which preset matches the live config, or "no preset matches" |
 | `opm preset revert` | Restore the most recent pre-apply backup |
 

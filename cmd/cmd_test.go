@@ -1391,3 +1391,50 @@ func TestPreset_DiffFilesRendersTrees(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
 }
+
+func TestPreset_CreateAllAndUse(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	out, _, err := h.run("preset", "create", "opus", "--all", "anthropic/claude-opus-4-8")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Created preset")
+	assert.Contains(t, out, "anthropic/claude-opus-4-8")
+
+	out, _, err = h.run("preset", "use", "opus")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	raw, err := os.ReadFile(filepath.Join(h.opencodeDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "anthropic/claude-opus-4-8")
+	assert.NotContains(t, string(raw), "kimi/kimi-for-coding")
+	assert.Contains(t, string(raw), "keep me")
+}
+
+func TestPreset_CreateRequiresAll(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	_, _, err := h.run("preset", "create", "opus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all")
+}
+
+func TestPreset_ModelsListsProviders(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": {
+			"kimi": { "npm": "@ai-sdk/openai-compatible",
+				"options": { "baseURL": "https://api.kimi.com/v1" },
+				"models": { "kimi-for-coding": {} } },
+			"anthropic": { "npm": "@ai-sdk/anthropic", "options": { "apiKey": "x" } }
+		}
+	}`), 0o644))
+
+	out, _, err := h.run("preset", "models")
+	require.NoError(t, err)
+	assert.Contains(t, out, "kimi/kimi-for-coding")
+	assert.Contains(t, out, "anthropic")
+	assert.Contains(t, out, "discovered by OpenCode at runtime")
+}

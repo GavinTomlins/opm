@@ -111,6 +111,37 @@ var presetCaptureCmd = &cobra.Command{
 	RunE:         runPresetCapture,
 }
 
+var presetModelsCmd = &cobra.Command{
+	Use:   "models",
+	Short: "List available models per provider (live-queries local servers)",
+	Long: `Lists every model reference you can use in a preset, grouped by the
+providers declared in the profile's opencode.json.
+
+Loopback-hosted providers (Ollama, LM Studio, omlx, ...) are queried live
+via their /models endpoint, so the listing shows what the server actually
+has loaded right now. Remote providers list their declared models only.`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runPresetModels,
+}
+
+var presetCreateCmd = &cobra.Command{
+	Use:   "create <name> --all <provider/model>",
+	Short: "Generate a preset assigning one model to every agent and category",
+	Long: `Generates a preset that points every agent and category entry in the
+live oh-my-openagent config at a single model — the "set everything to X"
+one-liner:
+
+  opm preset create opus --all anthropic/claude-opus-4-8
+  opm preset use opus
+
+Discover valid model references with 'opm preset models'. To snapshot the
+current mixed assignments instead, use 'opm preset capture'.`,
+	Args:         cobra.ExactArgs(1),
+	SilenceUsage: true,
+	RunE:         runPresetCreate,
+}
+
 var presetStatusCmd = &cobra.Command{
 	Use:          "status",
 	Short:        "Report which preset the live config matches",
@@ -134,8 +165,11 @@ func init() {
 	presetDiffCmd.Flags().Bool("project", false, "Diff against ./.opencode/ instead of the profile config")
 	presetDiffCmd.Flags().String("files", "", "Render before/ and after/ file trees into this directory for external diff tools")
 
+	presetCreateCmd.Flags().String("all", "", "provider/model to assign to every agent and category")
+	presetCreateCmd.Flags().Bool("force", false, "Overwrite an existing preset with the same name")
+
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,
-		presetCaptureCmd, presetStatusCmd, presetRevertCmd)
+		presetCaptureCmd, presetCreateCmd, presetModelsCmd, presetStatusCmd, presetRevertCmd)
 
 	markRootHelpGroup(presetCmd, helpGroupPresets)
 	markRootHelpOrder(presetCmd, 10)
@@ -288,6 +322,47 @@ func runPresetCapture(cmd *cobra.Command, args []string) error {
 	output.Success(cmd.OutOrStdout(), "Captured preset "+output.ProfileName(p.Name),
 		fmt.Sprintf("%d agent(s), %d category(ies)", len(p.Agents), len(p.Categories)),
 		output.ShortenHome(path))
+	return nil
+}
+
+func runPresetModels(cmd *cobra.Command, args []string) error {
+	m := newPresetManager()
+	providers, err := m.ListModels()
+	if err != nil {
+		return err
+	}
+	if len(providers) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No providers declared in opencode.json.")
+		return nil
+	}
+	output.ProviderModelsTable(cmd.OutOrStdout(), providers)
+	return nil
+}
+
+func runPresetCreate(cmd *cobra.Command, args []string) error {
+	m := newPresetManager()
+	ref, _ := cmd.Flags().GetString("all")
+	if ref == "" {
+		return fmt.Errorf("--all <provider/model> is required — or snapshot the current assignments with 'opm preset capture'")
+	}
+	force, _ := cmd.Flags().GetBool("force")
+
+	p, path, err := m.CreateAll(args[0], ref, force)
+	if err != nil {
+		return err
+	}
+
+	// Non-blocking heads-up if the ref looks wrong; use still validates.
+	if issues, err := m.ValidateRefs(p); err == nil {
+		for _, issue := range issues {
+			output.Warning(cmd.ErrOrStderr(), issue.Message)
+		}
+	}
+
+	output.Success(cmd.OutOrStdout(), "Created preset "+output.ProfileName(p.Name),
+		fmt.Sprintf("%d agent(s), %d category(ies) → %s", len(p.Agents), len(p.Categories), ref),
+		output.ShortenHome(path),
+		"apply with 'opm preset use "+p.Name+"'")
 	return nil
 }
 
