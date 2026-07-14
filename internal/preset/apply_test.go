@@ -180,19 +180,20 @@ func TestApply_WritesThroughSymlink(t *testing.T) {
 		live["agents"].(map[string]any)["sisyphus"].(map[string]any)["model"])
 }
 
-func TestApply_PatchesWinningLegacyFile(t *testing.T) {
+func TestApply_PatchesWinningCanonicalFile(t *testing.T) {
 	m, opencodeDir := newTestManager(t)
-	legacyPath := writeLive(t, opencodeDir, "oh-my-opencode.json", liveFixture)
-	shadowedPath := writeLive(t, opencodeDir, "oh-my-openagent.json", `{"agents":{}}`)
+	canonicalPath := writeLive(t, opencodeDir, "oh-my-openagent.json", liveFixture)
+	shadowedPath := writeLive(t, opencodeDir, "oh-my-opencode.json", `{"agents":{}}`)
 	writePreset(t, m, "local", localPreset)
 
 	result, err := m.Apply(mustResolve(t, m, "local"))
 	require.NoError(t, err)
-	assert.Equal(t, legacyPath, result.LivePath)
+	assert.Equal(t, canonicalPath, result.LivePath)
 	require.Len(t, result.Others, 1)
 
-	// The winning legacy file got the change; the shadowed file didn't.
-	live := parseLive(t, legacyPath)
+	// The winning canonical file got the change; the shadowed legacy
+	// file didn't.
+	live := parseLive(t, canonicalPath)
 	assert.Equal(t, "omlx/qwen3-coder-30b",
 		live["agents"].(map[string]any)["sisyphus"].(map[string]any)["model"])
 	shadowed, err := os.ReadFile(shadowedPath)

@@ -73,13 +73,18 @@ Rules:
 ## Live-config resolution
 
 The target file lives in the opencode config dir (in production, `~/.config/opencode`,
-i.e. inside the active profile). oh-my-openagent reads, in priority order (legacy name
-wins, `.jsonc` preferred within a name):
+i.e. inside the active profile). oh-my-openagent reads, in priority order (canonical name
+wins over legacy, `.jsonc` preferred within a name — verified against the plugin's
+`detectPluginConfigFile`/`detectConfigFile` source, v4.7.5):
 
-1. `oh-my-opencode.jsonc`
-2. `oh-my-opencode.json`
-3. `oh-my-openagent.jsonc`
-4. `oh-my-openagent.json`
+1. `oh-my-openagent.jsonc`
+2. `oh-my-openagent.json`
+3. `oh-my-opencode.jsonc`
+4. `oh-my-opencode.json`
+
+The plugin itself logs "remove the legacy file to avoid confusion" when both names exist,
+and auto-migrates a lone legacy file to the canonical name (renaming the original to
+`.bak`) — opm's shadow warning mirrors that guidance.
 
 `opm preset use` patches **the winning file** so the change is what oh-my-openagent
 actually loads, and warns when more than one candidate exists. When none exists, apply

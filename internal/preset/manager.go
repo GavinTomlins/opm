@@ -168,14 +168,16 @@ func (m *Manager) Save(p *Preset, force bool) (string, error) {
 	return path, nil
 }
 
-// liveCandidates in oh-my-openagent's load-priority order: the legacy
-// oh-my-opencode name wins over oh-my-openagent, and .jsonc wins within a
-// name. Apply must patch the file the framework actually loads.
+// liveCandidates in oh-my-openagent's load-priority order, verified
+// against the plugin's detectPluginConfigFile/detectConfigFile source
+// (v4.7.5): the canonical oh-my-openagent name wins over the legacy
+// oh-my-opencode name, and .jsonc wins over .json within a name. Apply
+// must patch the file the framework actually loads.
 var liveCandidates = []string{
-	"oh-my-opencode.jsonc",
-	"oh-my-opencode.json",
 	"oh-my-openagent.jsonc",
 	"oh-my-openagent.json",
+	"oh-my-opencode.jsonc",
+	"oh-my-opencode.json",
 }
 
 // defaultLiveName is the file created when no live config exists yet.

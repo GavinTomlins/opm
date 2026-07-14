@@ -128,21 +128,29 @@ func TestManager_SaveRefusesOverwrite(t *testing.T) {
 func TestManager_LiveFilePriority(t *testing.T) {
 	m, opencodeDir := newTestManager(t)
 
-	// Only the modern name exists.
-	writeLive(t, opencodeDir, "oh-my-openagent.json", `{}`)
+	// Only the legacy name exists — it is used as a fallback.
+	writeLive(t, opencodeDir, "oh-my-opencode.json", `{}`)
 	lf, err := m.LiveFile()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-openagent.json"), lf.Path)
+	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-opencode.json"), lf.Path)
 	assert.True(t, lf.Exists)
 	assert.Empty(t, lf.Others)
 
-	// The legacy name appears — it wins, the modern file is shadowed.
-	writeLive(t, opencodeDir, "oh-my-opencode.json", `{}`)
+	// The canonical name appears — it wins, the legacy file is shadowed
+	// (mirrors the plugin's detectPluginConfigFile behavior).
+	writeLive(t, opencodeDir, "oh-my-openagent.json", `{}`)
 	lf, err = m.LiveFile()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-opencode.json"), lf.Path)
+	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-openagent.json"), lf.Path)
 	require.Len(t, lf.Others, 1)
-	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-openagent.json"), lf.Others[0])
+	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-opencode.json"), lf.Others[0])
+
+	// .jsonc wins over .json within the canonical name.
+	writeLive(t, opencodeDir, "oh-my-openagent.jsonc", `{}`)
+	lf, err = m.LiveFile()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(opencodeDir, "oh-my-openagent.jsonc"), lf.Path)
+	require.Len(t, lf.Others, 2)
 }
 
 func TestManager_LiveFileNoneExists(t *testing.T) {
