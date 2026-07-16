@@ -104,3 +104,9 @@ func TestParse_NewTuningKeysAccepted(t *testing.T) {
 	sum := p.Agents["sisyphus"].Summary()
 	assert.Contains(t, sum, "textVerbosity=low")
 }
+
+func TestEntry_Summary_CategoryRouting(t *testing.T) {
+	p, err := Parse("x", []byte(`{ "agents": { "explore": { "category": "quick", "variant": "low" } } }`))
+	require.NoError(t, err)
+	assert.Equal(t, "c:quick variant=low", p.Agents["explore"].Summary())
+}

@@ -92,7 +92,9 @@ func (e Entry) Model() string {
 }
 
 // Summary renders the entry as "model [key=value ...]" for display, with
-// keys in tuningKeyOrder.
+// keys in tuningKeyOrder. The routing key (model, or category for
+// category-routed agents) renders bare/prefixed rather than as key=value,
+// echoing the "c:<category>" input syntax used to set it.
 func (e Entry) Summary() string {
 	parts := make([]string, 0, len(e))
 	for _, key := range tuningKeyOrder {
@@ -100,8 +102,12 @@ func (e Entry) Summary() string {
 		if !ok {
 			continue
 		}
-		if key == "model" {
+		switch key {
+		case "model":
 			parts = append(parts, renderValue(raw))
+			continue
+		case "category":
+			parts = append(parts, "c:"+renderValue(raw))
 			continue
 		}
 		parts = append(parts, key+"="+renderValue(raw))

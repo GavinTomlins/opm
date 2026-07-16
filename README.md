@@ -93,6 +93,12 @@ opm preset create opus --all anthropic/claude-opus-4-8
 # no editor needed:
 opm preset edit tiered
 
+# Or set entries one at a time, non-interactively — the same primitive an
+# agent framework can call on your behalf from a plain-English instruction:
+opm preset set tiered sisyphus kiro/claude-opus-4-7 --variant max
+opm preset set tiered explore c:quick
+opm preset set tiered legacy --clear
+
 # Author richer presets by hand (JSON or JSONC, string shorthand supported), then:
 opm preset diff local     # dry-run: exactly what would change
 opm preset use local      # bulk-swap every agent/category it names
@@ -187,6 +193,7 @@ Everything `opm` exposes for day-to-day use, without context trees.
 | `opm preset capture <name>` | Snapshot the live model assignments into a new preset. |
 | `opm preset create <name> --all <ref>` | Generate a preset assigning one model to every agent and category. |
 | `opm preset edit <name>` | Interactively assign models per agent/category from a numbered catalog. Creates or updates. |
+| `opm preset set <name> <entry> <model\|c:category> [--category] [--variant] [--clear]` | Set or clear a single entry, no prompts — scriptable by hand or by an agent. Creates or updates. |
 | `opm preset models` | List available models per provider; live-queries loopback servers' `/models`. |
 | `opm preset status` | Report which preset the live config matches. |
 | `opm preset revert` | Restore the live config from the most recent preset backup. |

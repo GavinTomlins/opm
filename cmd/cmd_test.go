@@ -1593,3 +1593,126 @@ func TestPresetEdit_NoProvidersDeclared(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no opencode.json")
 }
+
+func TestPreset_SetCreatesAndUpdates(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	out, _, err := h.run("preset", "set", "mixed", "sisyphus", "kiro/claude-opus-4-7", "--variant", "max")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Created preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"model": "kiro/claude-opus-4-7"`)
+	assert.Contains(t, string(data), `"variant": "max"`)
+
+	// A second call on the same preset updates it in place.
+	out, _, err = h.run("preset", "set", "mixed", "oracle", "openai/gpt-5.5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Updated preset")
+
+	data, rerr = os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"kiro/claude-opus-4-7"`) // sisyphus survived
+	assert.Contains(t, text, `"openai/gpt-5.5"`)       // oracle added
+}
+
+func TestPreset_SetCategoryFlagTargetsCategories(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "quick", "ollama/llama3.1:8b", "--category")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"categories"`)
+	assert.Contains(t, text, `"quick"`)
+	assert.Contains(t, text, `"ollama/llama3.1:8b"`)
+	assert.NotContains(t, text, `"agents"`)
+}
+
+func TestPreset_SetCategoryRouting(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "explore", "c:quick")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"category": "quick"`)
+}
+
+func TestPreset_SetCategoryRoutingRejectedOnCategoryTarget(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "quick", "c:deep", "--category")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only valid for agent entries")
+}
+
+func TestPreset_SetClear(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "mixed", `{ "agents": { "sisyphus": "kiro/claude-opus-4-7", "oracle": "openai/gpt-5.5" } }`)
+
+	out, _, err := h.run("preset", "set", "mixed", "oracle", "--clear")
+	require.NoError(t, err)
+	assert.Contains(t, out, "removed")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, "sisyphus")
+	assert.NotContains(t, text, "oracle")
+}
+
+func TestPreset_SetInvalidModelFormat(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "not-a-valid-ref")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "provider/model form")
+}
+
+func TestPreset_SetClearWithModelArgErrors(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "kiro/claude-opus-4-7", "--clear")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not take a model argument")
+}
+
+func TestPreset_SetMissingModelErrors(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is required unless --clear")
+}
+
+func TestPreset_SetThenUseWorks(t *testing.T) {
+	h := newHarness(t)
+	livePath := h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "kimi/kimi-for-coding", "--variant", "high")
+	require.NoError(t, err)
+	_, _, err = h.run("preset", "set", "mixed", "quick", "kimi/kimi-for-coding", "--category")
+	require.NoError(t, err)
+
+	out, _, err := h.run("preset", "use", "mixed")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	raw, err := os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"variant": "high"`)
+}

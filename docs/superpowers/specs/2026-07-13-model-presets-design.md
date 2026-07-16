@@ -216,9 +216,37 @@ in place:
 `LiveEntries` (in `internal/preset`) exposes tuning-only entries — never
 prompt/permission content — mirroring `captureSection`'s filtering.
 
+## Phase 6: scriptable single-entry authoring (implemented)
+
+`opm preset edit` solves *discovery* (what models exist) but is interactive — a full
+walk through every agent/category, unsuitable for scripting or for an agent framework
+that just wants to execute a plain-English instruction ("put oracle on gpt-5.5") as a
+single shell call. `opm preset set <name> <entry> <model|c:category>` is the
+non-interactive counterpart:
+
+- No stdin reads at all — safe to call from a script or generate as a tool call.
+- `<entry>` targets an agent by default; `--category` retargets it to a category (the
+  two namespaces can collide on the same name, so this must be explicit, not guessed).
+- The ref argument has exactly two literal forms: `provider/model`, or `c:<category>`
+  for category routing on an agent entry (rejected on category entries) — a narrower
+  grammar than the wizard's `parseEntryInput` on purpose; a scriptable command's
+  positional argument shouldn't have a vocabulary of magic words like `clear`/`list`.
+- `--variant <v>` sets the variant alongside the model/category; `--clear` removes the
+  entry instead (mutually exclusive with the ref argument).
+- Creates the preset on first use, updates it in place thereafter — repeated calls
+  incrementally build (or amend) a mixed preset, one agent at a time.
+
+This is the primitive the `omc-profile-switcher` skill uses to build presets from a
+plain-English instruction: a sequence of `opm preset set` calls, one per agent named,
+rather than either hand-writing JSON or driving the interactive wizard's stdin loop.
+
+`Entry.Summary()` renders a category route as `c:<name>` (echoing the input syntax)
+rather than the generic `key=value` form, so `preset show`/`edit`/`diff` output stays
+consistent with what you'd type to set it.
+
 ## Roadmap
 
-All five phases are implemented. Possible future work: probing non-loopback LAN
+All six phases are implemented. Possible future work: probing non-loopback LAN
 endpoints behind an opt-in flag, and adopting the preset file format in external tools
 (OCCM, a standalone TUI).
 
