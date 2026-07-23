@@ -965,6 +965,37 @@ func TestBuildRootHelpSections_RealRootCommandCoversExpectedCommands(t *testing.
 	assert.Equal(t, []string{"init", "doctor", "reset"}, byGroup[helpGroupSetup])
 	assert.Equal(t, []string{"create", "copy", "use", "exec", "list", "show", "inspect", "rename", "remove"}, byGroup[helpGroupProfiles])
 	assert.Equal(t, []string{"path"}, byGroup[helpGroupScripting])
+
+	// The "preset" parent command has its own subcommands and must be
+	// flattened into "preset <verb>" rows in a deliberate workflow order —
+	// otherwise its entire surface is invisible from the root help.
+	assert.Equal(t, []string{
+		"preset models", "preset list", "preset show", "preset status",
+		"preset capture", "preset create", "preset set", "preset edit",
+		"preset diff", "preset use", "preset revert",
+	}, byGroup[helpGroupPresets])
+}
+
+func TestBuildRootHelpSections_FlattensNestedSubcommands(t *testing.T) {
+	root := &cobra.Command{Use: "opm"}
+	parent := &cobra.Command{Use: "parent", Short: "Parent group"}
+	childB := &cobra.Command{Use: "beta", Short: "Beta verb"}
+	childA := &cobra.Command{Use: "alpha", Short: "Alpha verb", Aliases: []string{"a"}}
+	hiddenChild := &cobra.Command{Use: "hidden-child", Short: "Should not appear", Hidden: true}
+
+	parent.AddCommand(childB, childA, hiddenChild)
+	markRootHelpGroup(parent, helpGroupSetup)
+	markRootHelpOrder(childA, 10)
+	markRootHelpOrder(childB, 20)
+	root.AddCommand(parent)
+
+	sections := buildRootHelpSections(root)
+	require.Len(t, sections, 1)
+	require.Len(t, sections[0].entries, 2)
+	assert.Equal(t, "parent alpha", sections[0].entries[0].name)
+	assert.Equal(t, "Alpha verb", sections[0].entries[0].short)
+	assert.Equal(t, "a", sections[0].entries[0].alias)
+	assert.Equal(t, "parent beta", sections[0].entries[1].name)
 }
 
 func TestCmd_Init_ReinitAfterReset(t *testing.T) {
@@ -1390,4 +1421,381 @@ func TestPreset_DiffFilesRendersTrees(t *testing.T) {
 	raw, err := os.ReadFile(livePath)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+}
+
+func TestPreset_CreateAllAndUse(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	out, _, err := h.run("preset", "create", "opus", "--all", "anthropic/claude-opus-4-8")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Created preset")
+	assert.Contains(t, out, "anthropic/claude-opus-4-8")
+
+	out, _, err = h.run("preset", "use", "opus")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	raw, err := os.ReadFile(filepath.Join(h.opencodeDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "anthropic/claude-opus-4-8")
+	assert.NotContains(t, string(raw), "kimi/kimi-for-coding")
+	assert.Contains(t, string(raw), "keep me")
+}
+
+func TestPreset_CreateRequiresAll(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	_, _, err := h.run("preset", "create", "opus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all")
+}
+
+func TestPreset_ModelsListsProviders(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": {
+			"kimi": { "npm": "@ai-sdk/openai-compatible",
+				"options": { "baseURL": "https://api.kimi.com/v1" },
+				"models": { "kimi-for-coding": {} } },
+			"anthropic": { "npm": "@ai-sdk/anthropic", "options": { "apiKey": "x" } }
+		}
+	}`), 0o644))
+
+	out, _, err := h.run("preset", "models")
+	require.NoError(t, err)
+	assert.Contains(t, out, "kimi/kimi-for-coding")
+	assert.Contains(t, out, "anthropic")
+	assert.Contains(t, out, "discovered by OpenCode at runtime")
+}
+
+// runWithInput runs the root command with stdin fed from input, for
+// interactive commands like `preset edit`.
+func (h *cmdHarness) runWithInput(t *testing.T, input string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	rootCmd.SetIn(strings.NewReader(input))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+	return h.run(args...)
+}
+
+func TestPresetEdit_CreateNew(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig) // agent "sisyphus", category "quick"
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {}, "model-b": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",     // description
+		"1",    // sisyphus -> catalog #1 (omlx/model-a)
+		"",     // variant blank
+		"2",    // quick -> catalog #2 (omlx/model-b)
+		"high", // variant
+		"",     // save confirm (blank = yes)
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "wizard1")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Saved preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "wizard1.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"model": "omlx/model-a"`)
+	assert.Contains(t, string(data), `"model": "omlx/model-b"`)
+	assert.Contains(t, string(data), `"variant": "high"`)
+}
+
+func TestPresetEdit_ExistingClearAndKeep(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig) // agent "sisyphus", category "quick"
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {}, "model-b": {} } } }
+	}`), 0o644))
+	h.writePreset(t, "existing", `{
+		"agents": { "sisyphus": "omlx/model-a", "legacy": "omlx/model-b" }
+	}`)
+
+	// entry order: agents:sisyphus, categories:quick, agents:legacy (folded in)
+	input := strings.Join([]string{
+		"",      // description
+		"",      // sisyphus -> keep
+		"",      // quick -> keep (skip; stays unset)
+		"clear", // legacy -> remove from preset
+		"",      // save confirm (yes)
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "existing")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Editing existing preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "existing.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"omlx/model-a"`)
+	assert.NotContains(t, text, "legacy")
+	assert.NotContains(t, text, "omlx/model-b")
+	assert.NotContains(t, text, "categories")
+}
+
+func TestPresetEdit_DeclineSave(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",  // description
+		"1", // sisyphus -> catalog #1
+		"",  // variant blank
+		"",  // quick -> skip
+		"n", // decline save
+	}, "\n") + "\n"
+
+	out, _, err := h.runWithInput(t, input, "preset", "edit", "declined")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Aborted")
+
+	_, statErr := os.Stat(filepath.Join(h.store.OpmDir(), "presets", "declined.json"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestPresetEdit_InvalidInputReprompts(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",   // description
+		"99", // sisyphus -> out of range, reprompt
+		"1",  // sisyphus -> catalog #1
+		"",   // variant blank
+		"",   // quick -> skip
+		"n",  // decline save
+	}, "\n") + "\n"
+
+	_, stderr, err := h.runWithInput(t, input, "preset", "edit", "retry")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "no model numbered 99")
+}
+
+func TestPresetEdit_CategoryRouting(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://example.com/v1" },
+			"models": { "model-a": {} } } }
+	}`), 0o644))
+
+	input := strings.Join([]string{
+		"",        // description
+		"c:quick", // sisyphus -> category routing
+		"",        // variant blank
+		"",        // quick -> skip
+		"y",       // save
+	}, "\n") + "\n"
+
+	_, _, err := h.runWithInput(t, input, "preset", "edit", "catroute")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "catroute.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"category": "quick"`)
+	assert.NotContains(t, string(data), `"model"`)
+}
+
+func TestPresetEdit_NoProvidersDeclared(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	// No opencode.json at all.
+	_, _, err := h.run("preset", "edit", "noprov")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no opencode.json")
+}
+
+func TestPreset_SetCreatesAndUpdates(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	out, _, err := h.run("preset", "set", "mixed", "sisyphus", "kiro/claude-opus-4-7", "--variant", "max")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Created preset")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"model": "kiro/claude-opus-4-7"`)
+	assert.Contains(t, string(data), `"variant": "max"`)
+
+	// A second call on the same preset updates it in place.
+	out, _, err = h.run("preset", "set", "mixed", "oracle", "openai/gpt-5.5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Updated preset")
+
+	data, rerr = os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"kiro/claude-opus-4-7"`) // sisyphus survived
+	assert.Contains(t, text, `"openai/gpt-5.5"`)       // oracle added
+}
+
+func TestPreset_SetCategoryFlagTargetsCategories(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "quick", "ollama/llama3.1:8b", "--category")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, `"categories"`)
+	assert.Contains(t, text, `"quick"`)
+	assert.Contains(t, text, `"ollama/llama3.1:8b"`)
+	assert.NotContains(t, text, `"agents"`)
+}
+
+func TestPreset_SetCategoryRouting(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "explore", "c:quick")
+	require.NoError(t, err)
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), `"category": "quick"`)
+}
+
+func TestPreset_SetCategoryRoutingRejectedOnCategoryTarget(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "quick", "c:deep", "--category")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only valid for agent entries")
+}
+
+func TestPreset_SetClear(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "mixed", `{ "agents": { "sisyphus": "kiro/claude-opus-4-7", "oracle": "openai/gpt-5.5" } }`)
+
+	out, _, err := h.run("preset", "set", "mixed", "oracle", "--clear")
+	require.NoError(t, err)
+	assert.Contains(t, out, "removed")
+
+	data, rerr := os.ReadFile(filepath.Join(h.store.OpmDir(), "presets", "mixed.json"))
+	require.NoError(t, rerr)
+	text := string(data)
+	assert.Contains(t, text, "sisyphus")
+	assert.NotContains(t, text, "oracle")
+}
+
+func TestPreset_SetInvalidModelFormat(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "not-a-valid-ref")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "provider/model form")
+}
+
+func TestPreset_SetClearWithModelArgErrors(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "kiro/claude-opus-4-7", "--clear")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not take a model argument")
+}
+
+func TestPreset_SetMissingModelErrors(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is required unless --clear")
+}
+
+func TestPreset_SetThenUseWorks(t *testing.T) {
+	h := newHarness(t)
+	livePath := h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "set", "mixed", "sisyphus", "kimi/kimi-for-coding", "--variant", "high")
+	require.NoError(t, err)
+	_, _, err = h.run("preset", "set", "mixed", "quick", "kimi/kimi-for-coding", "--category")
+	require.NoError(t, err)
+
+	out, _, err := h.run("preset", "use", "mixed")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	raw, err := os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"variant": "high"`)
+}
+
+func TestPreset_ExamplesFlag(t *testing.T) {
+	h := newHarness(t)
+	out, _, err := h.run("preset", "--examples")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Bulk: same model everywhere")
+	assert.Contains(t, out, "opm preset create opus --all kiro/claude-opus-4-8")
+	assert.Contains(t, out, "Category tiers")
+	assert.Contains(t, out, "c:deep")
+}
+
+func TestPreset_BareShowsHelpUnchanged(t *testing.T) {
+	h := newHarness(t)
+	out, _, err := h.run("preset")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Model presets are named model-mapping overlays")
+	assert.Contains(t, out, "opm preset --examples")
+}
+
+func TestInspect_NoNameGivesActionableError(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("inspect")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "opm inspect <name>")
+	assert.NotContains(t, err.Error(), "accepts")
+}
+
+func TestRequireArgs_SingleArgCommandsGiveUsageHint(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"create"}, "opm create <name>"},
+		{[]string{"path"}, "opm path <name>"},
+		{[]string{"use"}, "opm use <name>"},
+		{[]string{"preset", "show"}, "opm preset show <name>"},
+		{[]string{"preset", "use"}, "opm preset use <name>"},
+		{[]string{"preset", "diff"}, "opm preset diff <name>"},
+		{[]string{"preset", "capture"}, "opm preset capture <name>"},
+		{[]string{"preset", "create"}, "opm preset create <name> --all <provider/model>"},
+		{[]string{"preset", "edit"}, "opm preset edit <name>"},
+	}
+	for _, tc := range cases {
+		_, _, err := h.run(tc.args...)
+		require.Error(t, err, "args: %v", tc.args)
+		assert.Contains(t, err.Error(), tc.want, "args: %v", tc.args)
+	}
 }

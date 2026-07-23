@@ -66,3 +66,15 @@ func managedGuard(cmd *cobra.Command, args []string) error {
 func warnCurrentCacheUpdate(cmd *cobra.Command, err error) {
 	output.Warning(cmd.ErrOrStderr(), "Updated live symlink state", "failed to update current cache: "+err.Error())
 }
+
+// requireArgs returns a cobra.Args validator that fails with an actionable
+// "usage: <example>" message instead of cobra's generic "accepts N arg(s),
+// received M" when the wrong number of positional args is given.
+func requireArgs(n int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) != n {
+			return fmt.Errorf("usage: %s", usage)
+		}
+		return nil
+	}
+}

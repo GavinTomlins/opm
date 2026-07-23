@@ -81,6 +81,56 @@ func PresetDetails(w io.Writer, p *preset.Preset) {
 	}
 }
 
+// ProviderModelsTable writes the model inventory grouped by provider.
+func ProviderModelsTable(w io.Writer, providers []preset.ProviderModels) {
+	for i, pm := range providers {
+		if i > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+
+		header := blue.Sprint(pm.Provider)
+		if pm.BaseURL != "" {
+			header += "  " + dim.Sprint(pm.BaseURL)
+		}
+		switch {
+		case pm.Online != nil && *pm.Online:
+			header += "  " + green.Sprint("● online")
+		case pm.Online != nil:
+			header += "  " + red.Sprint("✗ offline")
+		}
+		_, _ = fmt.Fprintln(w, header)
+
+		served := map[string]bool{}
+		for _, model := range pm.Served {
+			served[model] = true
+		}
+		declared := map[string]bool{}
+		for _, model := range pm.Declared {
+			declared[model] = true
+		}
+
+		printed := false
+		for _, model := range pm.Declared {
+			note := ""
+			if pm.Online != nil && *pm.Online && !served[model] {
+				note = "  " + yellow.Sprint("(declared but not served)")
+			}
+			_, _ = fmt.Fprintf(w, "  %s%s\n", pm.Ref(model), note)
+			printed = true
+		}
+		for _, model := range pm.Served {
+			if declared[model] {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "  %s  %s\n", pm.Ref(model), dim.Sprint("(served, not declared in opencode.json)"))
+			printed = true
+		}
+		if !printed {
+			_, _ = fmt.Fprintln(w, dim.Sprint("  (no models declared — discovered by OpenCode at runtime)"))
+		}
+	}
+}
+
 // PresetChanges writes the diff listing: one row per field-level change.
 func PresetChanges(w io.Writer, changes []preset.Change) {
 	maxLen := 0

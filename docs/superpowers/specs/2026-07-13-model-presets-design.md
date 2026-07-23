@@ -126,6 +126,9 @@ resolves to, so they work pre-`opm init` too.
 | `opm preset use <name>` | Backup + surgical apply to the live config |
 | `opm preset diff <name>` | Dry-run: exact field-level changes `use` would make. `--files <dir>` additionally renders before/after trees of every file the apply would touch (same patching code paths, zero writes) for external diff tools like difftastic or Hunk |
 | `opm preset capture <name>` | Snapshot live tuning keys into a new preset (`--force` to overwrite) |
+| `opm preset create <name> --all <ref>` | Generate a preset assigning one model to every agent/category entry in the live config — the "set everything to X" one-liner |
+| `opm preset models` | Model discovery: declared models per provider from `opencode.json`, plus a live `/models` query of loopback-hosted providers so the listing reflects what local servers actually serve right now (marks declared-but-not-served and served-but-not-declared) |
+| `opm preset edit <name>` | Interactive picker: walks every live agent/category, shows a numbered model catalog, lets you assign per entry. Creates or updates. |
 | `opm preset status` | Which preset matches the live config, or "no preset matches" |
 | `opm preset revert` | Restore the most recent pre-apply backup |
 
@@ -191,11 +194,61 @@ the newest set as a unit — live config, markdown agents, and opencode.json tog
   the profile's `opencode.json` (provider declarations are global). The preset's
   `opencode` block is skipped in project mode with a warning.
 
+## Phase 5: interactive authoring (implemented)
+
+`opm preset edit <name>` — a line-based interactive picker (deliberately not a
+full-screen TUI; the repo's `bubbletea`/`lipgloss` ban stands, this is `bufio.Scanner`
+over `cmd.InOrStdin()`). Creates the preset if it doesn't exist, or loads and updates it
+in place:
+
+1. Print the model catalog once, numbered, grouped by provider, with an offline badge
+   for loopback providers that failed their probe (reuses `ListModels`).
+2. Prompt for a description.
+3. Walk every agent and category in the live config (`Manager.LiveEntries`), plus any
+   entries already in the preset but no longer in the live config (folded in for
+   review/removal). At each prompt: a number picks a catalog model, a typed
+   `provider/model` ref is used directly, `c:<category>` routes an agent via a category
+   (rejected on category entries), `clear` removes the entry, `list` reprints the
+   catalog, blank keeps the existing value (or skips, if unset).
+4. Show the resulting preset (`PresetDetails`) and any non-blocking `ValidateRefs`
+   warnings, then confirm before writing via the existing `Save`.
+
+`LiveEntries` (in `internal/preset`) exposes tuning-only entries — never
+prompt/permission content — mirroring `captureSection`'s filtering.
+
+## Phase 6: scriptable single-entry authoring (implemented)
+
+`opm preset edit` solves *discovery* (what models exist) but is interactive — a full
+walk through every agent/category, unsuitable for scripting or for an agent framework
+that just wants to execute a plain-English instruction ("put oracle on gpt-5.5") as a
+single shell call. `opm preset set <name> <entry> <model|c:category>` is the
+non-interactive counterpart:
+
+- No stdin reads at all — safe to call from a script or generate as a tool call.
+- `<entry>` targets an agent by default; `--category` retargets it to a category (the
+  two namespaces can collide on the same name, so this must be explicit, not guessed).
+- The ref argument has exactly two literal forms: `provider/model`, or `c:<category>`
+  for category routing on an agent entry (rejected on category entries) — a narrower
+  grammar than the wizard's `parseEntryInput` on purpose; a scriptable command's
+  positional argument shouldn't have a vocabulary of magic words like `clear`/`list`.
+- `--variant <v>` sets the variant alongside the model/category; `--clear` removes the
+  entry instead (mutually exclusive with the ref argument).
+- Creates the preset on first use, updates it in place thereafter — repeated calls
+  incrementally build (or amend) a mixed preset, one agent at a time.
+
+This is the primitive the `omc-profile-switcher` skill uses to build presets from a
+plain-English instruction: a sequence of `opm preset set` calls, one per agent named,
+rather than either hand-writing JSON or driving the interactive wizard's stdin loop.
+
+`Entry.Summary()` renders a category route as `c:<name>` (echoing the input syntax)
+rather than the generic `key=value` form, so `preset show`/`edit`/`diff` output stays
+consistent with what you'd type to set it.
+
 ## Roadmap
 
-All four phases are implemented. Possible future work: an `opm preset edit` authoring
-helper, probing non-loopback LAN endpoints behind an opt-in flag, and adopting the preset
-file format in external tools (OCCM, a standalone TUI).
+All six phases are implemented. Possible future work: probing non-loopback LAN
+endpoints behind an opt-in flag, and adopting the preset file format in external tools
+(OCCM, a standalone TUI).
 
 ## Dependencies
 

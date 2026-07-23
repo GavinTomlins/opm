@@ -8,7 +8,7 @@ import (
 var createCmd = &cobra.Command{
 	Use:          "create <name>",
 	Short:        "Create a new profile",
-	Args:         cobra.ExactArgs(1),
+	Args:         requireArgs(1, "opm create <name>"),
 	PreRunE:      managedGuard,
 	SilenceUsage: true,
 	RunE:         runCreate,

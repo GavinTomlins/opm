@@ -9,7 +9,7 @@ import (
 var pathCmd = &cobra.Command{
 	Use:               "path <name>",
 	Short:             "Print the absolute path to a profile directory",
-	Args:              cobra.ExactArgs(1),
+	Args:              requireArgs(1, "opm path <name>"),
 	PreRunE:           managedGuard,
 	ValidArgsFunction: singleArgProfileCompletion,
 	SilenceUsage:      true,

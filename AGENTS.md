@@ -25,7 +25,7 @@ All subcommands are flat (no `context` grouping):
 | `opm path <name>` | Print the filesystem path to a profile directory |
 | `opm reset` | Restore `~/.config/opencode` to a plain directory |
 | `opm doctor` | Check opm installation health |
-| `opm preset <verb>` | Model presets: `list`, `show`, `use`, `diff`, `capture`, `status`, `revert` — named model-mapping overlays applied surgically onto the active profile's oh-my-openagent config (the one deliberate exception to the flat-surface rule; see `docs/superpowers/specs/2026-07-13-model-presets-design.md`) |
+| `opm preset <verb>` | Model presets: `list`, `show`, `use`, `diff`, `capture`, `create`, `models`, `edit`, `status`, `revert` — named model-mapping overlays applied surgically onto the active profile's oh-my-openagent config (the one deliberate exception to the flat-surface rule; see `docs/superpowers/specs/2026-07-13-model-presets-design.md`) |
 
 ### Constraints
 
