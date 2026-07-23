@@ -117,14 +117,42 @@ func buildRootHelpSections(root *cobra.Command) []rootHelpSection {
 		if !rootHelpGroups[group] {
 			panic("unknown root help group: " + group)
 		}
-		entry := rootHelpEntry{
-			name:  cmd.Name(),
-			short: cmd.Short,
+
+		children := cmd.Commands()
+		if len(children) == 0 {
+			entry := rootHelpEntry{
+				name:  cmd.Name(),
+				short: cmd.Short,
+			}
+			if len(cmd.Aliases) > 0 {
+				entry.alias = cmd.Aliases[0]
+			}
+			grouped[group] = append(grouped[group], orderedEntry{entry: entry, order: cmd.Annotations[rootHelpOrderAnnotation]})
+			continue
 		}
-		if len(cmd.Aliases) > 0 {
-			entry.alias = cmd.Aliases[0]
+
+		// A command with its own subcommands is flattened into one row per
+		// subcommand ("preset list", "preset use", ...) instead of a single
+		// opaque parent entry — otherwise its entire surface is invisible
+		// from the root help (you'd have to already know to drill in with
+		// '<parent> --help' to discover any of it).
+		for i, child := range children {
+			if child.Hidden {
+				continue
+			}
+			entry := rootHelpEntry{
+				name:  cmd.Name() + " " + child.Name(),
+				short: child.Short,
+			}
+			if len(child.Aliases) > 0 {
+				entry.alias = child.Aliases[0]
+			}
+			order := child.Annotations[rootHelpOrderAnnotation]
+			if order == "" {
+				order = fmt.Sprintf("%03d", i)
+			}
+			grouped[group] = append(grouped[group], orderedEntry{entry: entry, order: order})
 		}
-		grouped[group] = append(grouped[group], orderedEntry{entry: entry, order: cmd.Annotations[rootHelpOrderAnnotation]})
 	}
 
 	var sections []rootHelpSection

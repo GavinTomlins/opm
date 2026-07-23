@@ -253,8 +253,24 @@ func init() {
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,
 		presetCaptureCmd, presetCreateCmd, presetModelsCmd, presetStatusCmd, presetRevertCmd)
 
+	// Deliberate workflow order for the root help's flattened "preset <verb>"
+	// rows: discover what's available, inspect what exists, author a
+	// preset, preview the change, apply it, undo if needed. Left to Go's
+	// init()-order-across-files default, 'edit'/'set' (registered in
+	// separate files) would land awkwardly at the very end.
+	markRootHelpOrder(presetModelsCmd, 10)
+	markRootHelpOrder(presetListCmd, 20)
+	markRootHelpOrder(presetShowCmd, 30)
+	markRootHelpOrder(presetStatusCmd, 40)
+	markRootHelpOrder(presetCaptureCmd, 50)
+	markRootHelpOrder(presetCreateCmd, 60)
+	markRootHelpOrder(presetSetCmd, 70)
+	markRootHelpOrder(presetEditCmd, 80)
+	markRootHelpOrder(presetDiffCmd, 90)
+	markRootHelpOrder(presetUseCmd, 100)
+	markRootHelpOrder(presetRevertCmd, 110)
+
 	markRootHelpGroup(presetCmd, helpGroupPresets)
-	markRootHelpOrder(presetCmd, 10)
 	rootCmd.AddCommand(presetCmd)
 }
 

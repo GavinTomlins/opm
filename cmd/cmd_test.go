@@ -965,6 +965,37 @@ func TestBuildRootHelpSections_RealRootCommandCoversExpectedCommands(t *testing.
 	assert.Equal(t, []string{"init", "doctor", "reset"}, byGroup[helpGroupSetup])
 	assert.Equal(t, []string{"create", "copy", "use", "exec", "list", "show", "inspect", "rename", "remove"}, byGroup[helpGroupProfiles])
 	assert.Equal(t, []string{"path"}, byGroup[helpGroupScripting])
+
+	// The "preset" parent command has its own subcommands and must be
+	// flattened into "preset <verb>" rows in a deliberate workflow order —
+	// otherwise its entire surface is invisible from the root help.
+	assert.Equal(t, []string{
+		"preset models", "preset list", "preset show", "preset status",
+		"preset capture", "preset create", "preset set", "preset edit",
+		"preset diff", "preset use", "preset revert",
+	}, byGroup[helpGroupPresets])
+}
+
+func TestBuildRootHelpSections_FlattensNestedSubcommands(t *testing.T) {
+	root := &cobra.Command{Use: "opm"}
+	parent := &cobra.Command{Use: "parent", Short: "Parent group"}
+	childB := &cobra.Command{Use: "beta", Short: "Beta verb"}
+	childA := &cobra.Command{Use: "alpha", Short: "Alpha verb", Aliases: []string{"a"}}
+	hiddenChild := &cobra.Command{Use: "hidden-child", Short: "Should not appear", Hidden: true}
+
+	parent.AddCommand(childB, childA, hiddenChild)
+	markRootHelpGroup(parent, helpGroupSetup)
+	markRootHelpOrder(childA, 10)
+	markRootHelpOrder(childB, 20)
+	root.AddCommand(parent)
+
+	sections := buildRootHelpSections(root)
+	require.Len(t, sections, 1)
+	require.Len(t, sections[0].entries, 2)
+	assert.Equal(t, "parent alpha", sections[0].entries[0].name)
+	assert.Equal(t, "Alpha verb", sections[0].entries[0].short)
+	assert.Equal(t, "a", sections[0].entries[0].alias)
+	assert.Equal(t, "parent beta", sections[0].entries[1].name)
 }
 
 func TestCmd_Init_ReinitAfterReset(t *testing.T) {
