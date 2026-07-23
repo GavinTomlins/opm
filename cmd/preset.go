@@ -53,7 +53,7 @@ func scopedPresetManager(cmd *cobra.Command) (*preset.Manager, bool, error) {
 
 var presetCmd = &cobra.Command{
 	Use:   "preset",
-	Short: "Manage model presets",
+	Short: "Create, capture, and switch model presets",
 	Long: "Model presets are named model-mapping overlays applied onto the active\n" +
 		"profile's oh-my-openagent config. A preset re-points every agent and\n" +
 		"category it names at different provider/models in one command, while\n" +
