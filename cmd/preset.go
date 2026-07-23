@@ -54,10 +54,17 @@ func scopedPresetManager(cmd *cobra.Command) (*preset.Manager, bool, error) {
 var presetCmd = &cobra.Command{
 	Use:   "preset",
 	Short: "Create, capture, and switch model presets",
-	Long: "Model presets are named model-mapping overlays applied onto the active\n" +
-		"profile's oh-my-openagent config. A preset re-points every agent and\n" +
-		"category it names at different provider/models in one command, while\n" +
-		"prompts, permissions, and comments in the live config are preserved.",
+	Long: `Model presets are named model-mapping overlays applied onto the active
+profile's oh-my-openagent config. A preset re-points every agent and
+category it names at different provider/models in one command, while
+prompts, permissions, and comments in the live config are preserved.
+
+  opm preset set tiered sisyphus kiro/claude-opus-4-8
+  opm preset use tiered
+
+That sets the "sisyphus" agent to the "kiro/claude-opus-4-8" model inside
+the "tiered" preset, then applies it. Run 'opm preset <command> --help'
+for details on any individual command below.`,
 	SilenceUsage: true,
 }
 
