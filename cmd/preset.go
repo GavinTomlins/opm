@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -64,8 +65,68 @@ prompts, permissions, and comments in the live config are preserved.
 
 That sets the "sisyphus" agent to the "kiro/claude-opus-4-8" model inside
 the "tiered" preset, then applies it. Run 'opm preset <command> --help'
-for details on any individual command below.`,
+for details on any individual command below, or 'opm preset --examples'
+for a longer worked walkthrough covering every common task.`,
 	SilenceUsage: true,
+	RunE:         runPresetRoot,
+}
+
+// presetExampleSections is the content behind 'opm preset --examples' — one
+// real, runnable command per line, grounded in actual agent/model/category
+// names rather than <placeholder> syntax.
+var presetExampleSections = []struct {
+	label string
+	lines []string
+}{
+	{"Bulk: same model everywhere", []string{
+		`opm preset create opus --all kiro/claude-opus-4-8`,
+	}},
+	{"One agent at a time", []string{
+		`opm preset set tiered sisyphus kiro/claude-opus-4-8 --variant max`,
+		`opm preset set tiered oracle openai/gpt-5.5`,
+	}},
+	{"Category tiers — change many agents at once", []string{
+		`opm preset set kiro deep kiro/claude-opus-4-8 --category`,
+		`opm preset set kiro sisyphus c:deep`,
+		`opm preset set kiro prometheus c:deep`,
+	}},
+	{"Remove an entry", []string{
+		`opm preset set tiered legacy --clear`,
+	}},
+	{"Snapshot what's live right now", []string{
+		`opm preset capture kimi`,
+	}},
+	{"Preview, then apply", []string{
+		`opm preset diff tiered`,
+		`opm preset use tiered`,
+	}},
+	{"Discover real model refs — never guess an ID", []string{
+		`opm preset models`,
+	}},
+	{"Interactive picker instead of typing refs by hand", []string{
+		`opm preset edit tiered`,
+	}},
+}
+
+func printPresetExamples(w io.Writer) {
+	for i, sec := range presetExampleSections {
+		if i > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+		output.HelpSection(w, sec.label+":")
+		for _, line := range sec.lines {
+			_, _ = fmt.Fprintln(w, "  "+line)
+		}
+	}
+}
+
+func runPresetRoot(cmd *cobra.Command, args []string) error {
+	examples, _ := cmd.Flags().GetBool("examples")
+	if !examples {
+		return cmd.Help()
+	}
+	printPresetExamples(cmd.OutOrStdout())
+	return nil
 }
 
 var presetListCmd = &cobra.Command{
@@ -166,6 +227,8 @@ var presetRevertCmd = &cobra.Command{
 }
 
 func init() {
+	presetCmd.Flags().Bool("examples", false, "Show worked examples for common preset tasks")
+
 	presetCaptureCmd.Flags().Bool("force", false, "Overwrite an existing preset with the same name")
 	presetUseCmd.Flags().Bool("force", false, "Apply even when model validation or endpoint probes fail")
 	presetUseCmd.Flags().Bool("project", false, "Apply to ./.opencode/ as a project-level override instead of the profile config")

@@ -1716,3 +1716,21 @@ func TestPreset_SetThenUseWorks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"variant": "high"`)
 }
+
+func TestPreset_ExamplesFlag(t *testing.T) {
+	h := newHarness(t)
+	out, _, err := h.run("preset", "--examples")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Bulk: same model everywhere")
+	assert.Contains(t, out, "opm preset create opus --all kiro/claude-opus-4-8")
+	assert.Contains(t, out, "Category tiers")
+	assert.Contains(t, out, "c:deep")
+}
+
+func TestPreset_BareShowsHelpUnchanged(t *testing.T) {
+	h := newHarness(t)
+	out, _, err := h.run("preset")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Model presets are named model-mapping overlays")
+	assert.Contains(t, out, "opm preset --examples")
+}

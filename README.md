@@ -99,6 +99,9 @@ opm preset set tiered sisyphus kiro/claude-opus-4-7 --variant max
 opm preset set tiered explore c:quick
 opm preset set tiered legacy --clear
 
+# Forget the exact syntax? A worked walkthrough covering every command above:
+opm preset --examples
+
 # Author richer presets by hand (JSON or JSONC, string shorthand supported), then:
 opm preset diff local     # dry-run: exactly what would change
 opm preset use local      # bulk-swap every agent/category it names
