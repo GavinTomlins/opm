@@ -19,6 +19,10 @@ Each profile is a full OpenCode config directory. Switching changes what `~/.con
 
 That is the whole flow: one command to switch, same path, no config surgery.
 
+One thing to know up front: **profile = which house you're in, preset = which outfit
+you're wearing.** This page is about profiles (whole environments) — see
+[Model presets](#model-presets) below if you just want to switch models.
+
 <p align="center">
   <img src="assets/demo/readme-quick-start.gif" alt="Terminal demo showing opm init, create work, use work, and list" width="720" />
 </p>
