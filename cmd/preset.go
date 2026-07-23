@@ -165,7 +165,7 @@ func init() {
 	presetDiffCmd.Flags().Bool("project", false, "Diff against ./.opencode/ instead of the profile config")
 	presetDiffCmd.Flags().String("files", "", "Render before/ and after/ file trees into this directory for external diff tools")
 
-	presetCreateCmd.Flags().String("all", "", "provider/model to assign to every agent and category")
+	presetCreateCmd.Flags().String("all", "", "provider/model to assign to every agent and category, e.g. anthropic/claude-opus-4-8")
 	presetCreateCmd.Flags().Bool("force", false, "Overwrite an existing preset with the same name")
 
 	presetCmd.AddCommand(presetListCmd, presetShowCmd, presetUseCmd, presetDiffCmd,

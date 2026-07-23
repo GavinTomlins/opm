@@ -34,7 +34,7 @@ instead — the two namespaces can have entries with the same name.`,
 
 func init() {
 	presetSetCmd.Flags().Bool("category", false, "Target a category entry instead of an agent")
-	presetSetCmd.Flags().String("variant", "", "Set the variant tuning key alongside the model")
+	presetSetCmd.Flags().String("variant", "", "Set the variant tuning key alongside the model, e.g. high")
 	presetSetCmd.Flags().Bool("clear", false, "Remove the entry instead of setting it")
 	presetCmd.AddCommand(presetSetCmd)
 }
