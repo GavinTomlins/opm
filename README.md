@@ -69,9 +69,15 @@ opm exec personal -- opencode --no-auto-update
 
 # Run any command with the profile's config in scope.
 opm exec ci -- opencode run "fix the tests"
+
+# One-off session on a different model preset — see "Model presets" below.
+# Applied to an ephemeral copy; the real profile is never modified.
+opm exec work --preset local
 ```
 
 `opm exec` sets `XDG_CONFIG_HOME` to a temporary directory containing a symlink to the named profile, then spawns the command. The global active profile — what `opm show` returns — is never touched. When the command exits, the temp directory is cleaned up automatically.
+
+With `--preset`, the temporary directory is a copy-on-write overlay instead of a plain symlink: every profile file is still symlinked except the ones a preset can touch (the oh-my-openagent config, `opencode.json`, agent markdown), which are materialized as real copies so the preset can be applied to them without writing back to the profile or any repo its files are symlinked into.
 
 ## Model presets
 
@@ -177,29 +183,30 @@ Everything `opm` exposes for day-to-day use, without context trees.
 | Command | Description |
 |---|---|
 | `opm init [--as <name>]` | Migrate your existing config into opm management. Non-destructive. The initial profile is named `default` unless overridden with `--as`. |
-| `opm create <name>` | Create a new empty profile. Use `--from` to clone an existing profile as the starting point. |
+| `opm create <name> [--from <name>]` | Create a new empty profile. `--from` clones an existing profile as the starting point instead. |
 | `opm use <name>` | Switch the active profile via atomic symlink swap. Reload OpenCode to pick up the new profile. |
-| `opm exec <name> [-- command [args...]]` | Run `opencode` (or any command) using the named profile **without** changing the global active profile. Useful for per-project sessions. |
+| `opm exec <name> [--preset <name>] [--force] [-- command [args...]]` | Run `opencode` (or any command) using the named profile **without** changing the global active profile. `--preset` applies a model preset to an ephemeral copy for just this session — the real profile is never touched; `--force` applies that preset even if validation/probes fail. |
 | `opm list [-l]` | List all profiles. Active marked `●`. Dangling marked `✗` and shown as missing. Pass `-l` to include paths. |
 | `opm show` | Print the name of the currently active profile. |
 | `opm copy <src> <dst>` | Clone a profile to a new name. |
 | `opm rename <old> <new>` | Rename a profile. Updates the symlink atomically if active. |
-| `opm remove <name> [name...]` | Remove one or more profiles. Refuses the active profile without `--force`. |
+| `opm remove <name> [name...] [-f]` | Remove one or more profiles. `-f`/`--force` also removes the active profile, auto-switching first. |
 | `opm path <name>` | Print the absolute path to a profile directory. Useful for scripting. |
-| `opm inspect <name>` | Show profile details and directory contents. |
-| `opm doctor` | Run installation health checks. Exits with code 1 on failure. |
+| `opm inspect <name>` | Show a profile's active status, path, and full directory contents. |
+| `opm doctor` | Run installation health checks (symlink, profiles, presets). Exits with code 1 on failure. |
 | `opm reset` | Remove opm management and restore `~/.config/opencode` as a plain directory. |
-| `opm preset list` | List model presets. `●` marks presets matching the live config. |
+| `opm preset --examples` | Print a worked walkthrough covering every task below, with real commands. |
+| `opm preset list` | List model presets. `●` marks presets matching the live config. Not scoped to a profile — see [Model presets](#model-presets). |
 | `opm preset show <name>` | Show a preset's resolved model mapping (after `extends`). |
-| `opm preset use <name>` | Apply a preset to the live oh-my-openagent config (backs up first). |
-| `opm preset diff <name>` | Dry-run: show exactly what `use` would change. `--files <dir>` renders before/after trees for external diff tools. |
-| `opm preset capture <name>` | Snapshot the live model assignments into a new preset. |
-| `opm preset create <name> --all <ref>` | Generate a preset assigning one model to every agent and category. |
+| `opm preset use <name> [--force] [--project]` | Apply a preset to the live oh-my-openagent config (backs up first). `--force` applies past a failed validation/probe; `--project` writes `./.opencode/` instead of the profile config. |
+| `opm preset diff <name> [--project] [--files <dir>]` | Dry-run: show exactly what `use` would change. `--files <dir>` renders before/after trees for external diff tools; `--project` diffs against `./.opencode/` instead. |
+| `opm preset capture <name> [--force]` | Snapshot the live model assignments into a new preset. `--force` overwrites an existing preset of the same name. |
+| `opm preset create <name> --all <ref> [--force]` | Generate a preset assigning one model to every agent and category. `--force` overwrites an existing preset of the same name. |
 | `opm preset edit <name>` | Interactively assign models per agent/category from a numbered catalog. Creates or updates. |
-| `opm preset set <name> <entry> <model\|c:category> [--category] [--variant] [--clear]` | Set or clear a single entry, no prompts — scriptable by hand or by an agent. Creates or updates. |
+| `opm preset set <name> <entry> <model\|c:category> [--category] [--variant <v>] [--clear]` | Set or clear a single entry, no prompts — scriptable by hand or by an agent. Creates or updates. `--category` targets a category instead of an agent. |
 | `opm preset models` | List available models per provider; live-queries loopback servers' `/models`. |
 | `opm preset status` | Report which preset the live config matches. |
-| `opm preset revert` | Restore the live config from the most recent preset backup. |
+| `opm preset revert` | Restore every file the last apply touched, as one set, from the most recent backup. |
 
 **Shell completion** — profile names are tab-completed for `use`, `copy`, `rename`, `remove`, `path`, and `inspect`:
 
@@ -208,6 +215,93 @@ opm completion bash > /etc/bash_completion.d/opm   # bash
 opm completion zsh  > "${fpath[1]}/_opm"           # zsh
 opm completion fish > ~/.config/fish/completions/opm.fish  # fish
 ```
+
+---
+
+## Examples
+
+A runnable cookbook covering the full lifecycle — profiles, ephemeral sessions, and
+model presets together. Every command here is real; swap in your own profile/preset
+names and model refs.
+
+**First-time setup**
+
+```sh
+opm init                      # migrate ~/.config/opencode into profile "default"
+opm list                      # ● default
+opm doctor                    # confirm the managed symlink and presets are healthy
+```
+
+**Switching environments (profiles)**
+
+```sh
+opm create personal --from default   # clone default as a starting point
+opm use personal                     # atomic symlink swap; reload OpenCode after
+opm show                             # personal
+opm inspect personal                 # active status, path, full directory contents
+opm list -l                          # every profile with its path
+```
+
+**Per-project sessions without touching global state**
+
+```sh
+opm exec work                                     # one-off session on "work", opm show unaffected
+opm exec work -- opencode run "fix the tests"      # any command, not just opencode
+opm exec work --preset local                       # + a model preset, applied to an ephemeral copy only
+```
+
+**Building your first preset from what's already running**
+
+```sh
+opm preset capture kimi          # zero authoring — snapshot today's live assignments
+opm preset status                # ✓ Live config matches preset kimi
+```
+
+**Bulk provider swap — every agent, one model**
+
+```sh
+opm preset models                                    # confirm real refs first, never guess
+opm preset create opus --all anthropic/claude-opus-4-8
+opm preset diff opus                                 # preview before touching anything
+opm preset use opus                                  # apply (new opencode sessions only)
+```
+
+**Mixed preset, built one entry at a time — the scriptable path**
+
+```sh
+opm preset set tiered sisyphus kiro/claude-opus-4-8 --variant max   # top-tier agent
+opm preset set tiered explore kiro/claude-haiku-4-5                # cheap/quick agent
+opm preset set tiered deep kiro/claude-opus-4-8 --category          # a category tier
+opm preset set tiered oracle c:deep                                 # route an agent via that tier
+opm preset set tiered legacy --clear                                 # remove a stale entry
+```
+
+**Same thing, picked interactively instead of typed**
+
+```sh
+opm preset edit tiered   # numbered catalog per agent/category; blank skips, "clear" removes
+```
+
+**Review exactly what would change, in your own diff tool**
+
+```sh
+opm preset diff tiered --files /tmp/pd && difft /tmp/pd/before /tmp/pd/after
+```
+
+**Undo**
+
+```sh
+opm preset revert        # restore the last apply's backup set
+opm preset use kimi       # or just switch back to a known-good preset
+```
+
+**Per-project override, independent of the global preset**
+
+```sh
+opm preset use local --project   # writes ./.opencode/, closest-wins over the global config
+```
+
+For the full preset command surface with more scenarios, run `opm preset --examples`.
 
 ---
 
