@@ -1079,3 +1079,315 @@ func TestExec_PassesThroughArgs(t *testing.T) {
 	assert.Contains(t, stdout, "hello")
 	assert.Contains(t, stdout, "world")
 }
+
+// ── preset ────────────────────────────────────────────────────────────────────
+
+// writeLiveConfig creates opencodeDir as a plain directory containing an
+// oh-my-openagent.json with the given content.
+func (h *cmdHarness) writeLiveConfig(t *testing.T, content string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(h.opencodeDir, 0o755))
+	path := filepath.Join(h.opencodeDir, "oh-my-openagent.json")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	return path
+}
+
+// writePreset stores a preset file under the harness's opm root.
+func (h *cmdHarness) writePreset(t *testing.T, name, content string) {
+	t.Helper()
+	dir := filepath.Join(h.store.OpmDir(), "presets")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".json"), []byte(content), 0o644))
+}
+
+const testLiveConfig = `{
+	// keep this comment
+	"agents": {
+		"sisyphus": { "model": "kimi/kimi-for-coding", "variant": "max", "prompt": "keep me" }
+	},
+	"categories": { "quick": { "model": "kimi/kimi-for-coding" } }
+}`
+
+const testLocalPreset = `{
+	"description": "all local",
+	"agents": { "sisyphus": { "model": "omlx/qwen3-coder-30b", "variant": "max" } },
+	"categories": { "quick": "ollama/llama3.1:8b" }
+}`
+
+func TestPreset_ListEmpty(t *testing.T) {
+	h := newHarness(t)
+	out, _, err := h.run("preset", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "No presets found")
+}
+
+func TestPreset_UseMissing(t *testing.T) {
+	h := newHarness(t)
+	_, _, err := h.run("preset", "use", "nope")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `preset "nope" does not exist`)
+}
+
+func TestPreset_CaptureStatusUseDiffFlow(t *testing.T) {
+	h := newHarness(t)
+	livePath := h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "local", testLocalPreset)
+
+	// Capture the current state as a preset.
+	out, _, err := h.run("preset", "capture", "kimi")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Captured preset")
+
+	// Status reports the captured preset as matching.
+	out, _, err = h.run("preset", "status")
+	require.NoError(t, err)
+	assert.Contains(t, out, "kimi")
+
+	// Diff against the local preset shows pending changes.
+	out, _, err = h.run("preset", "diff", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents.sisyphus.model")
+	assert.Contains(t, out, "omlx/qwen3-coder-30b")
+
+	// Apply it.
+	out, _, err = h.run("preset", "use", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	// The live file was patched, comment and prompt preserved.
+	raw, err := os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "omlx/qwen3-coder-30b")
+	assert.Contains(t, string(raw), "keep this comment")
+	assert.Contains(t, string(raw), "keep me")
+
+	// Diff is now clean, status points at local, list marks it active.
+	out, _, err = h.run("preset", "diff", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "No changes")
+
+	out, _, err = h.run("preset", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "local")
+	assert.Contains(t, out, "all local")
+
+	// Revert restores the pre-apply content.
+	out, _, err = h.run("preset", "revert")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Restored")
+	raw, err = os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+}
+
+func TestPreset_CaptureRefusesOverwriteWithoutForce(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+
+	_, _, err := h.run("preset", "capture", "kimi")
+	require.NoError(t, err)
+
+	_, _, err = h.run("preset", "capture", "kimi")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	_, _, err = h.run("preset", "capture", "kimi", "--force")
+	require.NoError(t, err)
+}
+
+func TestPreset_UseAlreadyMatching(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	_, _, err := h.run("preset", "capture", "kimi")
+	require.NoError(t, err)
+
+	out, _, err := h.run("preset", "use", "kimi")
+	require.NoError(t, err)
+	assert.Contains(t, out, "already matches")
+}
+
+func TestPreset_ShowResolved(t *testing.T) {
+	h := newHarness(t)
+	h.writePreset(t, "base", `{ "agents": { "explore": "anthropic/claude-haiku-4" } }`)
+	h.writePreset(t, "local", `{ "extends": "base", "agents": { "sisyphus": "omlx/qwen3-coder-30b" } }`)
+
+	out, _, err := h.run("preset", "show", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "sisyphus")
+	assert.Contains(t, out, "omlx/qwen3-coder-30b")
+	// Inherited from base via extends.
+	assert.Contains(t, out, "explore")
+	assert.Contains(t, out, "anthropic/claude-haiku-4")
+}
+
+func TestPreset_RevertNoBackups(t *testing.T) {
+	h := newHarness(t)
+	_, _, err := h.run("preset", "revert")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no preset backups found")
+}
+
+func TestPreset_WarnsOnShadowedConfig(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	legacy := filepath.Join(h.opencodeDir, "oh-my-opencode.json")
+	require.NoError(t, os.WriteFile(legacy, []byte(testLiveConfig), 0o644))
+	h.writePreset(t, "local", testLocalPreset)
+
+	_, stderr, err := h.run("preset", "use", "local")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "Multiple oh-my-openagent config files found")
+}
+
+func TestPreset_UseBlockedByValidation(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	// opencode.json declares omlx with an explicit models map that does NOT
+	// contain the preset's model.
+	require.NoError(t, os.WriteFile(filepath.Join(h.opencodeDir, "opencode.json"), []byte(`{
+		"provider": { "omlx": { "npm": "@ai-sdk/openai-compatible",
+			"options": { "baseURL": "https://api.example.com/v1" },
+			"models": { "some-other-model": {} } } }
+	}`), 0o644))
+	h.writePreset(t, "local", `{ "agents": { "sisyphus": "omlx/qwen3-coder-30b" } }`)
+
+	_, stderr, err := h.run("preset", "use", "local")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed validation")
+	assert.Contains(t, stderr, "qwen3-coder-30b")
+
+	// --force applies anyway.
+	out, _, err := h.run("preset", "use", "local", "--force")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+}
+
+func TestDoctor_ReportsPresetHealth(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	h.writePreset(t, "good", `{ "agents": { "a": "p/m" } }`)
+	h.writePreset(t, "broken", `{ not json`)
+
+	out, _, err := h.run("doctor")
+	require.Error(t, err) // broken preset is a failure → exit 1
+	assert.Contains(t, out, "Presets")
+	assert.Contains(t, out, "good")
+	assert.Contains(t, out, "broken")
+	assert.Contains(t, out, "problem(s) found")
+}
+
+func TestPreset_UseProjectWritesOverride(t *testing.T) {
+	h := newHarness(t)
+	h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "local", testLocalPreset)
+
+	projectDir := t.TempDir()
+	origOverride := projectDirOverride
+	projectDirOverride = projectDir
+	t.Cleanup(func() { projectDirOverride = origOverride })
+
+	out, _, err := h.run("preset", "use", "local", "--project")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Applied preset")
+
+	// The project override exists and holds the preset's assignments.
+	overridePath := filepath.Join(projectDir, ".opencode", "oh-my-openagent.json")
+	raw, err := os.ReadFile(overridePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "omlx/qwen3-coder-30b")
+
+	// The global live config is untouched.
+	globalRaw, err := os.ReadFile(filepath.Join(h.opencodeDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(globalRaw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(globalRaw), "omlx/qwen3-coder-30b")
+
+	// Diff --project is clean; global diff still shows pending changes.
+	out, _, err = h.run("preset", "diff", "local", "--project")
+	require.NoError(t, err)
+	assert.Contains(t, out, "No changes")
+	out, _, err = h.run("preset", "diff", "local")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents.sisyphus.model")
+}
+
+func TestExec_WithPresetUsesEphemeralOverlay(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("create", "work")
+	require.NoError(t, err)
+
+	// Give the work profile a live config and an extra file.
+	workDir := h.store.ProfileDir("work")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "oh-my-openagent.json"), []byte(testLiveConfig), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "other.txt"), []byte("shared"), 0o644))
+	h.writePreset(t, "local", testLocalPreset)
+
+	// The child sees the patched config via XDG_CONFIG_HOME...
+	stdout, _, err := h.run("exec", "work", "--preset", "local", "--",
+		"sh", "-c", `cat "$XDG_CONFIG_HOME/opencode/oh-my-openagent.json"; cat "$XDG_CONFIG_HOME/opencode/other.txt"`)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "omlx/qwen3-coder-30b")
+	assert.Contains(t, stdout, "keep this comment")
+	assert.Contains(t, stdout, "shared")
+
+	// ...while the real profile is untouched.
+	raw, err := os.ReadFile(filepath.Join(workDir, "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(raw), "omlx/qwen3-coder-30b")
+}
+
+func TestExec_WithPresetDoesNotMutateSymlinkedAgents(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("create", "work")
+	require.NoError(t, err)
+
+	// Dotfiles setup: the profile's agents dir is a symlink into a repo,
+	// with a markdown agent named by the preset.
+	repoDir := t.TempDir()
+	agentMd := "---\nmode: subagent\nmodel: kimi/kimi-for-coding\n---\n\nOracle body.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "sisyphus.md"), []byte(agentMd), 0o644))
+	workDir := h.store.ProfileDir("work")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "oh-my-openagent.json"), []byte(testLiveConfig), 0o644))
+	require.NoError(t, os.Symlink(repoDir, filepath.Join(workDir, "agents")))
+	h.writePreset(t, "local", testLocalPreset)
+
+	// The ephemeral session sees the synced markdown model...
+	stdout, _, err := h.run("exec", "work", "--preset", "local", "--",
+		"sh", "-c", `cat "$XDG_CONFIG_HOME/opencode/agents/sisyphus.md"`)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "omlx/qwen3-coder-30b")
+
+	// ...but the real repo file is untouched.
+	raw, err := os.ReadFile(filepath.Join(repoDir, "sisyphus.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+	assert.NotContains(t, string(raw), "omlx/qwen3-coder-30b")
+}
+
+func TestPreset_DiffFilesRendersTrees(t *testing.T) {
+	h := newHarness(t)
+	livePath := h.writeLiveConfig(t, testLiveConfig)
+	h.writePreset(t, "local", testLocalPreset)
+
+	renderDir := filepath.Join(t.TempDir(), "pd")
+	out, _, err := h.run("preset", "diff", "local", "--files", renderDir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents.sisyphus.model")
+	assert.Contains(t, out, "Rendered 1 file(s) for external diff")
+
+	before, err := os.ReadFile(filepath.Join(renderDir, "before", "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(before), "kimi/kimi-for-coding")
+	after, err := os.ReadFile(filepath.Join(renderDir, "after", "oh-my-openagent.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(after), "omlx/qwen3-coder-30b")
+	assert.Contains(t, string(after), "keep this comment")
+
+	// The live config itself is untouched.
+	raw, err := os.ReadFile(livePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "kimi/kimi-for-coding")
+}

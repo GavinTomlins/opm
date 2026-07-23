@@ -26,6 +26,7 @@ func init() {
 func runDoctor(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 	report := doctor.Run(newStore())
+	doctor.RunPresets(&report, newPresetManager())
 	for i, section := range report.Sections {
 		if i > 0 {
 			_, _ = fmt.Fprintln(out)

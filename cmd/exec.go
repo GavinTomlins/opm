@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/tbcrawford/opm/internal/preset"
 )
 
 var execCmd = &cobra.Command{
@@ -17,10 +18,14 @@ var execCmd = &cobra.Command{
 the global active profile. The spawned process reads its opencode
 configuration from the given profile directory.
 
+With --preset, the session uses an ephemeral copy of the profile with the
+named model preset applied — the real profile is never modified.
+
 If no command is provided, opencode is launched.
 
 Examples:
   opm exec work
+  opm exec work --preset local
   opm exec personal -- opencode --no-auto-update
   opm exec ci -- opencode run "fix the tests"`,
 	Args:              cobra.MinimumNArgs(1),
@@ -30,6 +35,9 @@ Examples:
 }
 
 func init() {
+	execCmd.Flags().String("preset", "", "Apply a model preset to an ephemeral copy of the profile for this session")
+	execCmd.Flags().Bool("force", false, "Apply the preset even when validation or endpoint probes fail")
+	_ = execCmd.RegisterFlagCompletionFunc("preset", completePresetNames)
 	markRootHelpGroup(execCmd, helpGroupProfiles)
 	markRootHelpOrder(execCmd, 35)
 	rootCmd.AddCommand(execCmd)
@@ -71,8 +79,13 @@ func runExec(cmd *cobra.Command, args []string) error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	opencodeLink := filepath.Join(tmpDir, "opencode")
-	if err := os.Symlink(profileDir, opencodeLink); err != nil {
-		return fmt.Errorf("create ephemeral symlink: %w", err)
+	presetName, _ := cmd.Flags().GetString("preset")
+	if presetName == "" {
+		if err := os.Symlink(profileDir, opencodeLink); err != nil {
+			return fmt.Errorf("create ephemeral symlink: %w", err)
+		}
+	} else if err := applyEphemeralPreset(cmd, profileDir, opencodeLink, tmpDir, presetName); err != nil {
+		return err
 	}
 
 	child := exec.Command(childArgs[0], childArgs[1:]...) //nolint:gosec
@@ -88,6 +101,35 @@ func runExec(cmd *cobra.Command, args []string) error {
 			os.Exit(exitErr.ExitCode())
 		}
 		return fmt.Errorf("exec: %w", err)
+	}
+	return nil
+}
+
+// applyEphemeralPreset materializes a copy-on-write overlay of the profile
+// at overlayDir and applies the named preset to it. The real profile — and
+// any repos its symlinks point into — is never modified; backups land in
+// the ephemeral temp dir and vanish with it.
+func applyEphemeralPreset(cmd *cobra.Command, profileDir, overlayDir, tmpDir, presetName string) error {
+	if err := preset.OverlayProfile(profileDir, overlayDir); err != nil {
+		return fmt.Errorf("build ephemeral profile: %w", err)
+	}
+
+	s := newStore()
+	pm := preset.New(
+		filepath.Join(s.OpmDir(), "presets"),
+		overlayDir,
+		filepath.Join(tmpDir, "preset-backups"),
+	)
+	p, err := pm.Resolve(presetName)
+	if err != nil {
+		return err
+	}
+	force, _ := cmd.Flags().GetBool("force")
+	if err := checkPreset(cmd, pm, p, force); err != nil {
+		return err
+	}
+	if _, err := pm.Apply(p); err != nil {
+		return fmt.Errorf("apply preset %q: %w", presetName, err)
 	}
 	return nil
 }

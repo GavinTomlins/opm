@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tbcrawford/opm/internal/preset"
 	"github.com/tbcrawford/opm/internal/store"
 	"github.com/tbcrawford/opm/internal/symlink"
 )
@@ -136,4 +137,101 @@ func Run(s *store.Store) Report {
 
 	report.HasFailures = report.FailureCount > 0
 	return report
+}
+
+// RunPresets appends preset health checks to a report: each stored preset
+// must parse, resolve its extends chain, and reference only model refs the
+// profile's opencode.json can account for. Also warns when shadowed
+// oh-my-openagent config candidates exist.
+func RunPresets(report *Report, pm *preset.Manager) {
+	infos, err := pm.List()
+	if err != nil {
+		report.Sections = append(report.Sections, Section{
+			Label: "Presets",
+			Rows:  []Row{{Status: StatusFail, Message: fmt.Sprintf("list presets: %v", err)}},
+		})
+		report.FailureCount++
+		report.HasFailures = true
+		return
+	}
+
+	section := Section{Label: "Presets"}
+
+	if lf, err := pm.LiveFile(); err == nil && len(lf.Others) > 0 {
+		for _, other := range lf.Others {
+			section.Rows = append(section.Rows, Row{
+				Status:  StatusWarn,
+				Message: fmt.Sprintf("%s is shadowed by %s and never loaded", other, lf.Path),
+			})
+			report.WarningCount++
+		}
+	}
+
+	for _, info := range infos {
+		if info.Err != nil {
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusFail,
+				Message:     "%s — " + info.Err.Error(),
+				ProfileName: info.Name,
+			})
+			report.FailureCount++
+			continue
+		}
+		resolved, err := pm.Resolve(info.Name)
+		if err != nil {
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusFail,
+				Message:     "%s — " + err.Error(),
+				ProfileName: info.Name,
+			})
+			report.FailureCount++
+			continue
+		}
+		issues, err := pm.ValidateRefs(resolved)
+		if err != nil {
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusFail,
+				Message:     "%s — " + err.Error(),
+				ProfileName: info.Name,
+			})
+			report.FailureCount++
+			continue
+		}
+
+		fails, warns := 0, 0
+		for _, issue := range issues {
+			if issue.Severity == preset.SeverityFail {
+				fails++
+			} else {
+				warns++
+			}
+		}
+		switch {
+		case fails > 0:
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusFail,
+				Message:     fmt.Sprintf("%%s — %d invalid model ref(s); run 'opm preset diff %s'", fails, info.Name),
+				ProfileName: info.Name,
+			})
+			report.FailureCount++
+		case warns > 0:
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusWarn,
+				Message:     fmt.Sprintf("%%s — %d model ref warning(s)", warns),
+				ProfileName: info.Name,
+			})
+			report.WarningCount++
+		default:
+			section.Rows = append(section.Rows, Row{
+				Status:      StatusOK,
+				Message:     "%s",
+				ProfileName: info.Name,
+			})
+		}
+	}
+
+	if len(section.Rows) > 0 {
+		report.Sections = append(report.Sections, section)
+	}
+	report.HasFailures = report.FailureCount > 0
 }
