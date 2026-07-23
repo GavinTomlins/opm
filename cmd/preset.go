@@ -60,6 +60,10 @@ profile's oh-my-openagent config. A preset re-points every agent and
 category it names at different provider/models in one command, while
 prompts, permissions, and comments in the live config are preserved.
 
+Presets themselves are not scoped to a profile — the same stored presets
+(~/.config/opm/presets/) apply no matter which profile is active; a preset
+just patches whatever config the currently active profile resolves to.
+
   opm preset set tiered sisyphus kiro/claude-opus-4-8
   opm preset use tiered
 
@@ -130,8 +134,16 @@ func runPresetRoot(cmd *cobra.Command, args []string) error {
 }
 
 var presetListCmd = &cobra.Command{
-	Use:          "list",
-	Short:        "List presets; ● marks presets matching the live config",
+	Use:   "list",
+	Short: "List presets; ● marks presets matching the live config",
+	Long: `Lists every stored preset (~/.config/opm/presets/), with ● marking
+whichever one currently matches the live oh-my-openagent config.
+
+Presets are not scoped to a profile — this same list shows regardless of
+which profile is active, since a preset just patches whatever config the
+active profile currently resolves to. If you switch profiles with
+'opm use <name>', this list is unchanged; run 'opm preset status' to see
+whether any preset still matches the newly active profile's config.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runPresetList,
