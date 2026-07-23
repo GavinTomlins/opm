@@ -140,7 +140,7 @@ var presetListCmd = &cobra.Command{
 var presetShowCmd = &cobra.Command{
 	Use:               "show <name>",
 	Short:             "Show a preset's resolved model mapping",
-	Args:              cobra.ExactArgs(1),
+	Args:              requireArgs(1, "opm preset show <name>"),
 	ValidArgsFunction: singleArgPresetCompletion,
 	SilenceUsage:      true,
 	RunE:              runPresetShow,
@@ -149,7 +149,7 @@ var presetShowCmd = &cobra.Command{
 var presetUseCmd = &cobra.Command{
 	Use:               "use <name>",
 	Short:             "Apply a preset to the live oh-my-openagent config",
-	Args:              cobra.ExactArgs(1),
+	Args:              requireArgs(1, "opm preset use <name>"),
 	ValidArgsFunction: singleArgPresetCompletion,
 	SilenceUsage:      true,
 	RunE:              runPresetUse,
@@ -165,7 +165,7 @@ With --files <dir>, additionally renders every file the apply would touch
 into <dir>/before/ and <dir>/after/ trees for external diff tools:
 
   opm preset diff local --files /tmp/pd && difft /tmp/pd/before /tmp/pd/after`,
-	Args:              cobra.ExactArgs(1),
+	Args:              requireArgs(1, "opm preset diff <name>"),
 	ValidArgsFunction: singleArgPresetCompletion,
 	SilenceUsage:      true,
 	RunE:              runPresetDiff,
@@ -174,7 +174,7 @@ into <dir>/before/ and <dir>/after/ trees for external diff tools:
 var presetCaptureCmd = &cobra.Command{
 	Use:          "capture <name>",
 	Short:        "Snapshot the live model assignments into a new preset",
-	Args:         cobra.ExactArgs(1),
+	Args:         requireArgs(1, "opm preset capture <name>"),
 	SilenceUsage: true,
 	RunE:         runPresetCapture,
 }
@@ -205,7 +205,7 @@ one-liner:
 
 Discover valid model references with 'opm preset models'. To snapshot the
 current mixed assignments instead, use 'opm preset capture'.`,
-	Args:         cobra.ExactArgs(1),
+	Args:         requireArgs(1, "opm preset create <name> --all <provider/model>"),
 	SilenceUsage: true,
 	RunE:         runPresetCreate,
 }

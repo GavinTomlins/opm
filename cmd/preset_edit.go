@@ -25,7 +25,7 @@ At each prompt: a number picks a model from the catalog, a typed
 provider/model ref is used directly, "c:<category>" routes an agent through
 a category instead of a direct model, "clear" removes the entry from the
 preset, "list" reprints the catalog, and a blank line skips the entry.`,
-	Args:         cobra.ExactArgs(1),
+	Args:         requireArgs(1, "opm preset edit <name>"),
 	SilenceUsage: true,
 	RunE:         runPresetEdit,
 }

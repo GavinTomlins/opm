@@ -19,7 +19,7 @@ Not the same as 'opm preset use <name>': that only re-points model
 assignments inside whatever profile is already active, leaving MCPs,
 plugins, and everything else untouched. Use 'opm use' for a different
 environment; use 'opm preset use' for different models in this one.`,
-	Args:              cobra.ExactArgs(1),
+	Args:              requireArgs(1, "opm use <name>"),
 	PreRunE:           managedGuard,
 	ValidArgsFunction: singleArgProfileCompletion,
 	SilenceUsage:      true,

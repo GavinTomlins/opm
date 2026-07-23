@@ -9,9 +9,19 @@ import (
 )
 
 var inspectCmd = &cobra.Command{
-	Use:               "inspect <name>",
-	Short:             "Show detailed information about a profile",
-	Args:              cobra.ExactArgs(1),
+	Use:   "inspect <name>",
+	Short: "Show detailed information about a profile",
+	Long: `Shows a profile's active status, path, and full directory contents.
+
+  opm inspect work
+
+Run 'opm list' first to see available profile names.`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("requires a profile name — run 'opm list' to see available profiles, then 'opm inspect <name>'")
+		}
+		return nil
+	},
 	PreRunE:           managedGuard,
 	ValidArgsFunction: singleArgProfileCompletion,
 	SilenceUsage:      true,

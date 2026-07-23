@@ -1734,3 +1734,37 @@ func TestPreset_BareShowsHelpUnchanged(t *testing.T) {
 	assert.Contains(t, out, "Model presets are named model-mapping overlays")
 	assert.Contains(t, out, "opm preset --examples")
 }
+
+func TestInspect_NoNameGivesActionableError(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+	_, _, err := h.run("inspect")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "opm inspect <name>")
+	assert.NotContains(t, err.Error(), "accepts")
+}
+
+func TestRequireArgs_SingleArgCommandsGiveUsageHint(t *testing.T) {
+	h := newHarness(t)
+	h.mustInit(t)
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"create"}, "opm create <name>"},
+		{[]string{"path"}, "opm path <name>"},
+		{[]string{"use"}, "opm use <name>"},
+		{[]string{"preset", "show"}, "opm preset show <name>"},
+		{[]string{"preset", "use"}, "opm preset use <name>"},
+		{[]string{"preset", "diff"}, "opm preset diff <name>"},
+		{[]string{"preset", "capture"}, "opm preset capture <name>"},
+		{[]string{"preset", "create"}, "opm preset create <name> --all <provider/model>"},
+		{[]string{"preset", "edit"}, "opm preset edit <name>"},
+	}
+	for _, tc := range cases {
+		_, _, err := h.run(tc.args...)
+		require.Error(t, err, "args: %v", tc.args)
+		assert.Contains(t, err.Error(), tc.want, "args: %v", tc.args)
+	}
+}
