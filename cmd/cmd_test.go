@@ -50,7 +50,16 @@ func newHarness(t *testing.T) *cmdHarness {
 // Cobra does NOT reset flag values between Execute() calls on a shared command
 // tree — state would leak from test to test without this.
 func resetCmdFlags(root *cobra.Command) {
-	root.Flags().VisitAll(func(f *pflag.Flag) { _ = f.Value.Set(f.DefValue) })
+	root.Flags().VisitAll(func(f *pflag.Flag) {
+		// Slice-like flags (StringArray, StringSlice, ...) render their
+		// empty default as "[]", which Value.Set would append literally
+		// rather than clear. Reset those via SliceValue.Replace instead.
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(nil)
+			return
+		}
+		_ = f.Value.Set(f.DefValue)
+	})
 	for _, sub := range root.Commands() {
 		resetCmdFlags(sub)
 	}
