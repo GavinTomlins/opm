@@ -20,6 +20,7 @@ on a user's behalf in response to a plain-English instruction. Creates the
 preset if it doesn't exist yet.
 
   opm preset set tiered sisyphus kiro/claude-opus-4-7 --variant max
+  opm preset set tiered hephaestus kiro/gpt-5.6-sol --reasoning-effort high
   opm preset set tiered explore c:quick
   opm preset set tiered quick ollama/llama3.1:8b --category
   opm preset set tiered legacy --clear
@@ -35,6 +36,7 @@ instead — the two namespaces can have entries with the same name.`,
 func init() {
 	presetSetCmd.Flags().Bool("category", false, "Target a category entry instead of an agent")
 	presetSetCmd.Flags().String("variant", "", "Set the variant tuning key alongside the model, e.g. high")
+	presetSetCmd.Flags().String("reasoning-effort", "", "Set the reasoningEffort tuning key alongside the model, e.g. high")
 	presetSetCmd.Flags().Bool("clear", false, "Remove the entry instead of setting it")
 	presetCmd.AddCommand(presetSetCmd)
 }
@@ -67,6 +69,7 @@ func runPresetSet(cmd *cobra.Command, args []string) error {
 	isCategory, _ := cmd.Flags().GetBool("category")
 	clear, _ := cmd.Flags().GetBool("clear")
 	variant, _ := cmd.Flags().GetString("variant")
+	reasoningEffort, _ := cmd.Flags().GetString("reasoning-effort")
 
 	if clear && len(args) == 3 {
 		return fmt.Errorf("--clear does not take a model argument")
@@ -106,6 +109,10 @@ func runPresetSet(cmd *cobra.Command, args []string) error {
 		if variant != "" {
 			raw, _ := json.Marshal(variant)
 			entry["variant"] = raw
+		}
+		if reasoningEffort != "" {
+			raw, _ := json.Marshal(reasoningEffort)
+			entry["reasoningEffort"] = raw
 		}
 		section[entryName] = entry
 		summary = fmt.Sprintf("%s.%s = %s", sectionLabel, entryName, entry.Summary())
