@@ -20,8 +20,10 @@ on a user's behalf in response to a plain-English instruction. Creates the
 preset if it doesn't exist yet.
 
   opm preset set tiered sisyphus kiro/claude-opus-4-7 --variant max
+  opm preset set tiered hephaestus kiro/gpt-5.6-sol --reasoning-effort high
   opm preset set tiered explore c:quick
   opm preset set tiered quick ollama/llama3.1:8b --category
+  opm preset set tiered sisyphus kiro/claude-opus-4-8 --fallback kiro/claude-sonnet-4-6 --fallback openai/gpt-5.5=medium
   opm preset set tiered legacy --clear
 
 By default <entry> names an agent; pass --category to target a category
@@ -35,6 +37,8 @@ instead — the two namespaces can have entries with the same name.`,
 func init() {
 	presetSetCmd.Flags().Bool("category", false, "Target a category entry instead of an agent")
 	presetSetCmd.Flags().String("variant", "", "Set the variant tuning key alongside the model, e.g. high")
+	presetSetCmd.Flags().String("reasoning-effort", "", "Set the reasoningEffort tuning key alongside the model, e.g. high")
+	presetSetCmd.Flags().StringArray("fallback", nil, "Add a fallback model, in priority order (repeatable). Form: provider/model or provider/model=variant")
 	presetSetCmd.Flags().Bool("clear", false, "Remove the entry instead of setting it")
 	presetCmd.AddCommand(presetSetCmd)
 }
@@ -62,11 +66,37 @@ func resolveSetRef(ref string, allowCategoryRoute bool) (preset.Entry, error) {
 	return preset.Entry{"model": raw}, nil
 }
 
+// marshalFallbacks builds the fallback_models JSON array from repeated
+// --fallback flag values. Each is "provider/model" or "provider/model=variant".
+func marshalFallbacks(fallbacks []string) (json.RawMessage, error) {
+	items := make([]json.RawMessage, 0, len(fallbacks))
+	for _, fb := range fallbacks {
+		model, variant, hasVariant := strings.Cut(fb, "=")
+		if !strings.Contains(model, "/") {
+			return nil, fmt.Errorf("fallback %q must use provider/model form", model)
+		}
+		var raw json.RawMessage
+		var err error
+		if hasVariant {
+			raw, err = json.Marshal(map[string]string{"model": model, "variant": variant})
+		} else {
+			raw, err = json.Marshal(model)
+		}
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, raw)
+	}
+	return json.Marshal(items)
+}
+
 func runPresetSet(cmd *cobra.Command, args []string) error {
 	name, entryName := args[0], args[1]
 	isCategory, _ := cmd.Flags().GetBool("category")
 	clear, _ := cmd.Flags().GetBool("clear")
 	variant, _ := cmd.Flags().GetString("variant")
+	reasoningEffort, _ := cmd.Flags().GetString("reasoning-effort")
+	fallbacks, _ := cmd.Flags().GetStringArray("fallback")
 
 	if clear && len(args) == 3 {
 		return fmt.Errorf("--clear does not take a model argument")
@@ -106,6 +136,17 @@ func runPresetSet(cmd *cobra.Command, args []string) error {
 		if variant != "" {
 			raw, _ := json.Marshal(variant)
 			entry["variant"] = raw
+		}
+		if reasoningEffort != "" {
+			raw, _ := json.Marshal(reasoningEffort)
+			entry["reasoningEffort"] = raw
+		}
+		if len(fallbacks) > 0 {
+			raw, err := marshalFallbacks(fallbacks)
+			if err != nil {
+				return err
+			}
+			entry["fallback_models"] = raw
 		}
 		section[entryName] = entry
 		summary = fmt.Sprintf("%s.%s = %s", sectionLabel, entryName, entry.Summary())

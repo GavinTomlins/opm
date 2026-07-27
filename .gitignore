@@ -11,6 +11,9 @@ opm
 # Visual brainstorming sessions
 .superpowers/
 
+# oh-my-openagent local run-continuation cache
+.omo/
+
 # Git worktrees
 .worktrees/
 
